@@ -1,10 +1,8 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   createContext,
   ReactNode,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
 } from 'react';
@@ -20,39 +18,30 @@ import {
   uploadOutfitToSupabase,
 } from '../services/wardrobeSync';
 import { ClothingItem, Outfit } from '../types';
-import { normalizeRestoredImageUri } from '../utils/clothingImage';
+import { getCurrentAppUserId } from '../utils/userIdentity';
 import {
   MOCK_CLOTHING_ITEMS,
   MOCK_OUTFITS,
   getClothingItemsForOutfit,
 } from '../utils/mockData';
-
-function sanitizeClothingItem(item: ClothingItem): ClothingItem {
-  return {
-    ...item,
-    imageUri: normalizeRestoredImageUri(item.imageUri),
-  };
-}
-
-function sanitizeClothingItems(items: ClothingItem[]): ClothingItem[] {
-  return items.map(sanitizeClothingItem);
-}
-
-const USER_ITEMS_KEY = '@wardrobe_user_items';
-const USER_OUTFITS_KEY = '@wardrobe_user_outfits';
-const FAVORITES_KEY = '@wardrobe_favorites';
-const LEGACY_ITEMS_KEY = '@wardrobe_clothing_items';
+import {
+  EMPTY_FAVORITES,
+  FavoritesState,
+  clearLocalWardrobeDataForUser,
+  isGuestStorageUserId,
+  loadFavoritesForUser,
+  loadUserItemsForUser,
+  loadUserOutfitsForUser,
+  saveFavoritesForUser,
+  saveUserItemsForUser,
+  saveUserOutfitsForUser,
+} from '../utils/wardrobeStorage';
 
 type AddClothingInput = Omit<ClothingItem, 'id' | 'createdAt'>;
 type AddOutfitInput = Omit<Outfit, 'id' | 'createdAt'>;
 type UpdateClothingInput = Partial<
   Omit<ClothingItem, 'id' | 'createdAt' | 'imageUri'>
 >;
-
-type FavoritesState = {
-  clothingIds: string[];
-  outfitIds: string[];
-};
 
 type WardrobeContextValue = {
   clothingItems: ClothingItem[];
@@ -94,7 +83,28 @@ type WardrobeContextValue = {
 
 const WardrobeContext = createContext<WardrobeContextValue | null>(null);
 
-const EMPTY_FAVORITES: FavoritesState = { clothingIds: [], outfitIds: [] };
+async function loadWardrobeForCurrentUser(): Promise<{
+  userId: string;
+  items: ClothingItem[];
+  outfits: Outfit[];
+  favorites: FavoritesState;
+  includeMocks: boolean;
+}> {
+  const userId = await getCurrentAppUserId();
+  const [items, outfits, favorites] = await Promise.all([
+    loadUserItemsForUser(userId),
+    loadUserOutfitsForUser(userId),
+    loadFavoritesForUser(userId),
+  ]);
+
+  return {
+    userId,
+    items,
+    outfits,
+    favorites,
+    includeMocks: isGuestStorageUserId(userId),
+  };
+}
 
 function mergeClothingItems(userItems: ClothingItem[]): ClothingItem[] {
   const mockIds = new Set(MOCK_CLOTHING_ITEMS.map((item) => item.id));
@@ -122,69 +132,22 @@ function pruneOutfitsAfterItemRemoval(
     .filter((outfit) => outfit.clothingItemIds.length >= 2);
 }
 
-async function saveUserItems(items: ClothingItem[]): Promise<void> {
-  await AsyncStorage.setItem(USER_ITEMS_KEY, JSON.stringify(items));
+function persistUserItems(items: ClothingItem[]): void {
+  getCurrentAppUserId()
+    .then((userId) => saveUserItemsForUser(userId, items))
+    .catch(() => {});
 }
 
-async function saveUserOutfits(outfits: Outfit[]): Promise<void> {
-  await AsyncStorage.setItem(USER_OUTFITS_KEY, JSON.stringify(outfits));
+function persistUserOutfits(outfits: Outfit[]): void {
+  getCurrentAppUserId()
+    .then((userId) => saveUserOutfitsForUser(userId, outfits))
+    .catch(() => {});
 }
 
-async function saveFavorites(favorites: FavoritesState): Promise<void> {
-  await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
-}
-
-async function loadUserItems(): Promise<ClothingItem[]> {
-  const stored = await AsyncStorage.getItem(USER_ITEMS_KEY);
-  if (stored) {
-    return sanitizeClothingItems(JSON.parse(stored) as ClothingItem[]);
-  }
-
-  const legacy = await AsyncStorage.getItem(LEGACY_ITEMS_KEY);
-  if (!legacy) {
-    return [];
-  }
-
-  const mockIds = new Set(MOCK_CLOTHING_ITEMS.map((item) => item.id));
-  const legacyItems = JSON.parse(legacy) as ClothingItem[];
-  const migrated = sanitizeClothingItems(
-    legacyItems.filter(
-      (item) => !mockIds.has(item.id) || !!item.imageUri,
-    ),
-  );
-
-  if (migrated.length > 0) {
-    await saveUserItems(migrated);
-    await AsyncStorage.removeItem(LEGACY_ITEMS_KEY);
-  }
-
-  return migrated;
-}
-
-async function loadUserOutfits(): Promise<Outfit[]> {
-  const stored = await AsyncStorage.getItem(USER_OUTFITS_KEY);
-  if (!stored) {
-    return [];
-  }
-  return JSON.parse(stored) as Outfit[];
-}
-
-async function loadFavorites(): Promise<FavoritesState> {
-  const stored = await AsyncStorage.getItem(FAVORITES_KEY);
-  if (!stored) {
-    return EMPTY_FAVORITES;
-  }
-  return JSON.parse(stored) as FavoritesState;
-}
-
-async function clearLocalWardrobeData(): Promise<void> {
-  await AsyncStorage.multiRemove([
-    USER_ITEMS_KEY,
-    USER_OUTFITS_KEY,
-    FAVORITES_KEY,
-    LEGACY_ITEMS_KEY,
-  ]);
-  console.log('[Dev] Local data cleared');
+function persistFavorites(favorites: FavoritesState): void {
+  getCurrentAppUserId()
+    .then((userId) => saveFavoritesForUser(userId, favorites))
+    .catch(() => {});
 }
 
 async function syncSafely(task: () => Promise<SyncResult>): Promise<void> {
@@ -214,6 +177,7 @@ function mergeCloudOutfits(
 }
 
 async function restoreFromCloud(
+  userId: string,
   localItems: ClothingItem[],
   localOutfits: Outfit[],
 ): Promise<{
@@ -251,7 +215,10 @@ async function restoreFromCloud(
   }
 
   if (changed) {
-    await Promise.all([saveUserItems(items), saveUserOutfits(outfits)]);
+    await Promise.all([
+      saveUserItemsForUser(userId, items),
+      saveUserOutfitsForUser(userId, outfits),
+    ]);
     console.log('[Sync] merged cloud backup into local storage');
   }
 
@@ -262,51 +229,56 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
   const [userItems, setUserItems] = useState<ClothingItem[]>([]);
   const [userOutfits, setUserOutfits] = useState<Outfit[]>([]);
   const [favorites, setFavorites] = useState<FavoritesState>(EMPTY_FAVORITES);
+  const [includeMocks, setIncludeMocks] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    async function hydrate() {
-      try {
-        const [savedItems, savedOutfits, savedFavorites] = await Promise.all([
-          loadUserItems(),
-          loadUserOutfits(),
-          loadFavorites(),
-        ]);
-        setUserItems(savedItems);
-        setUserOutfits(savedOutfits);
-        setFavorites(savedFavorites);
-        setIsLoading(false);
+  const applyLoadedWardrobe = useCallback(
+    (loaded: Awaited<ReturnType<typeof loadWardrobeForCurrentUser>>) => {
+      setIncludeMocks(loaded.includeMocks);
+      setUserItems(loaded.items);
+      setUserOutfits(loaded.outfits);
+      setFavorites(loaded.favorites);
+    },
+    [],
+  );
 
-        restoreFromCloud(savedItems, savedOutfits)
-          .then(({ items, outfits, changed }) => {
-            if (changed) {
-              setUserItems(items);
-              setUserOutfits(outfits);
-            }
-          })
-          .catch((error) => {
-            console.warn('Supabase sync error (restore from cloud):', error);
-          });
-      } catch {
-        setUserItems([]);
-        setUserOutfits([]);
-        setFavorites(EMPTY_FAVORITES);
-        setIsLoading(false);
+  const refreshCloudRestore = useCallback(async () => {
+    setIsLoading(true);
+
+    try {
+      const loaded = await loadWardrobeForCurrentUser();
+      applyLoadedWardrobe(loaded);
+
+      const { items, outfits, changed } = await restoreFromCloud(
+        loaded.userId,
+        loaded.items,
+        loaded.outfits,
+      );
+
+      if (changed) {
+        setUserItems(items);
+        setUserOutfits(outfits);
       }
+    } catch (error) {
+      console.warn('Supabase sync error (refresh from cloud):', error);
+    } finally {
+      setIsLoading(false);
     }
+  }, [applyLoadedWardrobe]);
 
-    hydrate();
-  }, []);
+  const clothingItems = useMemo(() => {
+    if (includeMocks) {
+      return mergeClothingItems(userItems);
+    }
+    return userItems;
+  }, [userItems, includeMocks]);
 
-  const clothingItems = useMemo(
-    () => mergeClothingItems(userItems),
-    [userItems],
-  );
-
-  const outfits = useMemo(
-    () => mergeOutfits(userOutfits),
-    [userOutfits],
-  );
+  const outfits = useMemo(() => {
+    if (includeMocks) {
+      return mergeOutfits(userOutfits);
+    }
+    return userOutfits;
+  }, [userOutfits, includeMocks]);
 
   const isUserClothingItem = useCallback(
     (id: string) => userItems.some((item) => item.id === id),
@@ -337,7 +309,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
 
     setUserItems((prev) => {
       const updated = [newItem, ...prev];
-      saveUserItems(updated).catch(() => {});
+      persistUserItems(updated);
       return updated;
     });
 
@@ -359,7 +331,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
           item.id === id ? { ...item, ...updates } : item,
         );
         updatedItem = updated.find((item) => item.id === id);
-        saveUserItems(updated).catch(() => {});
+        persistUserItems(updated);
         return updated;
       });
 
@@ -380,13 +352,13 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
 
       setUserItems((prev) => {
         const updated = prev.filter((item) => item.id !== id);
-        saveUserItems(updated).catch(() => {});
+        persistUserItems(updated);
         return updated;
       });
 
       setUserOutfits((prev) => {
         const updated = pruneOutfitsAfterItemRemoval(prev, id);
-        saveUserOutfits(updated).catch(() => {});
+        persistUserOutfits(updated);
 
         const removedOutfits = prev.filter(
           (outfit) => !updated.some((entry) => entry.id === outfit.id),
@@ -412,7 +384,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
           ...prev,
           clothingIds: prev.clothingIds.filter((favId) => favId !== id),
         };
-        saveFavorites(updated).catch(() => {});
+        persistFavorites(updated);
         return updated;
       });
 
@@ -430,7 +402,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
           ? prev.clothingIds.filter((favId) => favId !== id)
           : [...prev.clothingIds, id],
       };
-      saveFavorites(updated).catch(() => {});
+      persistFavorites(updated);
       return updated;
     });
   }, []);
@@ -444,7 +416,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
 
     setUserOutfits((prev) => {
       const updated = [newOutfit, ...prev];
-      saveUserOutfits(updated).catch(() => {});
+      persistUserOutfits(updated);
       return updated;
     });
 
@@ -461,7 +433,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
 
       setUserOutfits((prev) => {
         const updated = prev.filter((outfit) => outfit.id !== id);
-        saveUserOutfits(updated).catch(() => {});
+        persistUserOutfits(updated);
         return updated;
       });
 
@@ -472,7 +444,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
           ...prev,
           outfitIds: prev.outfitIds.filter((favId) => favId !== id),
         };
-        saveFavorites(updated).catch(() => {});
+        persistFavorites(updated);
         return updated;
       });
 
@@ -490,7 +462,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
           ? prev.outfitIds.filter((favId) => favId !== id)
           : [...prev.outfitIds, id],
       };
-      saveFavorites(updated).catch(() => {});
+      persistFavorites(updated);
       return updated;
     });
   }, []);
@@ -566,32 +538,12 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
     };
   }, [clothingItems, outfits, userOutfits, favorites]);
 
-  const refreshCloudRestore = useCallback(async () => {
-    try {
-      const [localItems, localOutfits] = await Promise.all([
-        loadUserItems(),
-        loadUserOutfits(),
-      ]);
-
-      const { items, outfits, changed } = await restoreFromCloud(
-        localItems,
-        localOutfits,
-      );
-
-      if (changed) {
-        setUserItems(items);
-        setUserOutfits(outfits);
-      }
-    } catch (error) {
-      console.warn('Supabase sync error (refresh from cloud):', error);
-    }
-  }, []);
-
   const clearLocalDataAndRestore = useCallback(async () => {
     setIsLoading(true);
 
     try {
-      await clearLocalWardrobeData();
+      const userId = await getCurrentAppUserId();
+      await clearLocalWardrobeDataForUser(userId);
       setUserItems([]);
       setUserOutfits([]);
       setFavorites(EMPTY_FAVORITES);
@@ -624,7 +576,10 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
         console.warn('[Dev] Restore failed (outfits):', outfitResult.error);
       }
 
-      await Promise.all([saveUserItems(items), saveUserOutfits(outfits)]);
+      await Promise.all([
+        saveUserItemsForUser(userId, items),
+        saveUserOutfitsForUser(userId, outfits),
+      ]);
 
       setUserItems(items);
       setUserOutfits(outfits);

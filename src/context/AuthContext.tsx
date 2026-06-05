@@ -78,7 +78,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(currentSession?.user ?? null);
     setHasChosenGuest(guestMode);
     setIsLoading(false);
-  }, []);
+    await refreshCloudRestore();
+  }, [refreshCloudRestore]);
 
   useEffect(() => {
     refreshAuthState();
@@ -90,17 +91,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, nextSession) => {
       const guestMode = await isGuestMode();
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
       setHasChosenGuest(guestMode);
+
+      if (
+        event === 'SIGNED_IN' ||
+        event === 'SIGNED_OUT' ||
+        event === 'INITIAL_SESSION'
+      ) {
+        await refreshCloudRestore();
+      }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [refreshAuthState]);
+  }, [refreshAuthState, refreshCloudRestore]);
 
   const isAuthenticated = !!session?.user && !hasChosenGuest;
   const isGuest = !isAuthenticated;

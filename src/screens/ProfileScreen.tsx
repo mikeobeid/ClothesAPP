@@ -14,17 +14,17 @@ export function ProfileScreen({ navigation }: Props) {
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   const handleLogout = () => {
-    Alert.alert('Log out', 'You can sign back in anytime. Your local wardrobe stays on this device.', [
+    Alert.alert('Logout', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Log Out',
+        text: 'Logout',
         style: 'destructive',
         onPress: async () => {
           setIsSigningOut(true);
           try {
             const result = await signOut();
             if (result.error) {
-              Alert.alert('Log out failed', result.error);
+              Alert.alert('Logout failed', result.error);
               return;
             }
 
@@ -75,34 +75,57 @@ export function ProfileScreen({ navigation }: Props) {
           </Text>
         </View>
 
-        <Text style={styles.name}>{profile.displayName}</Text>
+        <Text style={styles.name}>
+          {isAuthenticated ? profile.displayName : 'Guest'}
+        </Text>
         <Text style={styles.badge}>
-          {profile.isGuest ? 'Guest Account' : 'Signed In'}
+          {isAuthenticated ? 'Logged In' : 'Guest Mode'}
         </Text>
 
         <View style={styles.infoSection}>
-          <Text style={styles.label}>Email</Text>
+          <Text style={styles.label}>Mode</Text>
           <Text style={styles.value}>
-            {profile.email ?? 'Not signed in'}
+            {isAuthenticated ? 'Logged In' : 'Guest Mode'}
           </Text>
 
-          <Text style={styles.label}>Account Type</Text>
-          <Text style={styles.value}>
-            {profile.isGuest ? 'Guest' : 'Registered'}
-          </Text>
+          {isAuthenticated ? (
+            <>
+              <Text style={styles.label}>Email</Text>
+              <Text style={styles.value}>{profile.email ?? '—'}</Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.label}>Email</Text>
+              <Text style={styles.value}>Not signed in</Text>
+            </>
+          )}
         </View>
 
         {isAuthenticated ? (
           <View style={styles.actionSection}>
             <Button
-              title="Log Out"
+              title="Logout"
               variant="secondary"
               onPress={handleLogout}
               loading={isSigningOut}
               disabled={isSigningOut || isClearing}
             />
           </View>
-        ) : null}
+        ) : (
+          <View style={styles.actionSection}>
+            <Button
+              title="Sign In"
+              onPress={() => navigation.navigate('Login')}
+              disabled={isClearing}
+            />
+            <Button
+              title="Create Account"
+              variant="secondary"
+              onPress={() => navigation.navigate('Signup')}
+              disabled={isClearing}
+            />
+          </View>
+        )}
 
         <View style={styles.devSection}>
           <Text style={styles.devBadge}>TEMPORARY / DEVELOPER ONLY</Text>
@@ -165,6 +188,7 @@ const styles = StyleSheet.create({
   actionSection: {
     width: '100%',
     marginBottom: 24,
+    gap: 12,
   },
   label: {
     fontSize: 13,
