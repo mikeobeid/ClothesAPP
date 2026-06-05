@@ -1,17 +1,51 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Button, Input, ScreenContainer } from '../components';
+import { useAuth } from '../context/AuthContext';
 import { RootStackScreenProps } from '../navigation/types';
 
 type Props = RootStackScreenProps<'Login'>;
 
 export function LoginScreen({ navigation }: Props) {
+  const { signIn, continueAsGuest } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGuestLoading, setIsGuestLoading] = useState(false);
 
-  const handleContinueAsGuest = () => {
-    // TODO: Remove when Supabase auth is wired
-    navigation.replace('Home');
+  const handleLogin = async () => {
+    if (!email.trim() || !password) {
+      setError('Please enter your email and password.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError('');
+
+    try {
+      const result = await signIn(email, password);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      navigation.replace('Home');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleContinueAsGuest = async () => {
+    setIsGuestLoading(true);
+    setError('');
+
+    try {
+      await continueAsGuest();
+      navigation.replace('Home');
+    } finally {
+      setIsGuestLoading(false);
+    }
   };
 
   return (
@@ -25,19 +59,37 @@ export function LoginScreen({ navigation }: Props) {
             label="Email"
             placeholder="Enter your email"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(text) => {
+              setEmail(text);
+              if (error) {
+                setError('');
+              }
+            }}
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
+            editable={!isSubmitting && !isGuestLoading}
           />
           <Input
             label="Password"
             placeholder="Enter your password"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(text) => {
+              setPassword(text);
+              if (error) {
+                setError('');
+              }
+            }}
             secureTextEntry
+            editable={!isSubmitting && !isGuestLoading}
           />
-          <Button title="Log In" onPress={() => {}} disabled />
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          <Button
+            title="Log In"
+            onPress={handleLogin}
+            loading={isSubmitting}
+            disabled={isSubmitting || isGuestLoading}
+          />
         </View>
 
         <View style={styles.footer}>
@@ -45,11 +97,14 @@ export function LoginScreen({ navigation }: Props) {
             title="Create an Account"
             variant="secondary"
             onPress={() => navigation.navigate('Signup')}
+            disabled={isSubmitting || isGuestLoading}
           />
           <Button
             title="Continue as Guest"
             variant="ghost"
             onPress={handleContinueAsGuest}
+            loading={isGuestLoading}
+            disabled={isSubmitting || isGuestLoading}
           />
         </View>
       </View>
@@ -79,5 +134,11 @@ const styles = StyleSheet.create({
   },
   footer: {
     gap: 12,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#C97B7B',
+    marginTop: -8,
+    marginBottom: 12,
   },
 });

@@ -5,7 +5,7 @@ import {
   isCloudImageUri,
   uploadClothingImageToSupabase,
 } from './clothingStorage';
-import { getGuestUserId } from './guestUser';
+import { getCurrentAppUserId } from '../utils/userIdentity';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 
 export type SyncResult = {
@@ -119,7 +119,7 @@ export async function uploadClothingItemToSupabase(
   }
 
   try {
-    const userId = await getGuestUserId();
+    const userId = await getCurrentAppUserId();
     const row = await toClothesRow(item, userId);
     const { error } = await supabase.from('clothes').upsert(row);
 
@@ -154,7 +154,7 @@ export async function fetchClothingItemsFromSupabase(): Promise<{
   }
 
   try {
-    const userId = await getGuestUserId();
+    const userId = await getCurrentAppUserId();
     const { data, error } = await supabase
       .from('clothes')
       .select('*')
@@ -191,7 +191,7 @@ export async function updateClothingItemInSupabase(
   }
 
   try {
-    const userId = await getGuestUserId();
+    const userId = await getCurrentAppUserId();
     const row = await toClothesRow(item, userId);
     const { error } = await supabase.from('clothes').upsert(row);
 
@@ -224,7 +224,7 @@ export async function deleteClothingItemFromSupabase(
   }
 
   try {
-    const userId = await getGuestUserId();
+    const userId = await getCurrentAppUserId();
     const { error } = await supabase
       .from('clothes')
       .delete()
@@ -260,7 +260,7 @@ export async function uploadOutfitToSupabase(
   }
 
   try {
-    const userId = await getGuestUserId();
+    const userId = await getCurrentAppUserId();
     const { error: outfitError } = await supabase
       .from('outfits')
       .upsert(toOutfitRow(outfit, userId));
@@ -324,7 +324,7 @@ export async function fetchOutfitsFromSupabase(): Promise<{
   }
 
   try {
-    const userId = await getGuestUserId();
+    const userId = await getCurrentAppUserId();
     const { data: outfitRows, error: outfitError } = await supabase
       .from('outfits')
       .select('*')
@@ -374,7 +374,7 @@ export async function deleteOutfitFromSupabase(
   }
 
   try {
-    const userId = await getGuestUserId();
+    const userId = await getCurrentAppUserId();
     const { error } = await supabase
       .from('outfits')
       .delete()

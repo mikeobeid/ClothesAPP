@@ -1,18 +1,41 @@
 import { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { Button, ScreenContainer } from '../components';
+import { useAuth } from '../context/AuthContext';
 import { useWardrobe } from '../context/WardrobeContext';
-import { UserProfile } from '../types';
+import { RootStackScreenProps } from '../navigation/types';
 
-const GUEST_PROFILE: UserProfile = {
-  id: 'guest',
-  displayName: 'Guest',
-  isGuest: true,
-};
+type Props = RootStackScreenProps<'Profile'>;
 
-export function ProfileScreen() {
+export function ProfileScreen({ navigation }: Props) {
+  const { profile, isAuthenticated, signOut } = useAuth();
   const { clearLocalDataAndRestore, isLoading } = useWardrobe();
   const [isClearing, setIsClearing] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const handleLogout = () => {
+    Alert.alert('Log out', 'You can sign back in anytime. Your local wardrobe stays on this device.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log Out',
+        style: 'destructive',
+        onPress: async () => {
+          setIsSigningOut(true);
+          try {
+            const result = await signOut();
+            if (result.error) {
+              Alert.alert('Log out failed', result.error);
+              return;
+            }
+
+            navigation.replace('Login');
+          } finally {
+            setIsSigningOut(false);
+          }
+        },
+      },
+    ]);
+  };
 
   const handleClearLocalData = () => {
     Alert.alert(
@@ -48,22 +71,38 @@ export function ProfileScreen() {
       <View style={styles.content}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
-            {GUEST_PROFILE.displayName.charAt(0)}
+            {profile.displayName.charAt(0).toUpperCase()}
           </Text>
         </View>
 
-        <Text style={styles.name}>{GUEST_PROFILE.displayName}</Text>
-        <Text style={styles.badge}>Guest Account</Text>
+        <Text style={styles.name}>{profile.displayName}</Text>
+        <Text style={styles.badge}>
+          {profile.isGuest ? 'Guest Account' : 'Signed In'}
+        </Text>
 
         <View style={styles.infoSection}>
           <Text style={styles.label}>Email</Text>
-          <Text style={styles.value}>Not signed in</Text>
+          <Text style={styles.value}>
+            {profile.email ?? 'Not signed in'}
+          </Text>
 
           <Text style={styles.label}>Account Type</Text>
           <Text style={styles.value}>
-            {GUEST_PROFILE.isGuest ? 'Guest' : 'Registered'}
+            {profile.isGuest ? 'Guest' : 'Registered'}
           </Text>
         </View>
+
+        {isAuthenticated ? (
+          <View style={styles.actionSection}>
+            <Button
+              title="Log Out"
+              variant="secondary"
+              onPress={handleLogout}
+              loading={isSigningOut}
+              disabled={isSigningOut || isClearing}
+            />
+          </View>
+        ) : null}
 
         <View style={styles.devSection}>
           <Text style={styles.devBadge}>TEMPORARY / DEVELOPER ONLY</Text>
@@ -76,7 +115,7 @@ export function ProfileScreen() {
             title="Clear Local Data"
             variant="danger"
             onPress={handleClearLocalData}
-            disabled={isLoading || isClearing}
+            disabled={isLoading || isClearing || isSigningOut}
           />
         </View>
       </View>
@@ -121,7 +160,11 @@ const styles = StyleSheet.create({
   infoSection: {
     width: '100%',
     gap: 4,
-    marginBottom: 32,
+    marginBottom: 24,
+  },
+  actionSection: {
+    width: '100%',
+    marginBottom: 24,
   },
   label: {
     fontSize: 13,

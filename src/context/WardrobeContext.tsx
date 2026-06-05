@@ -89,6 +89,7 @@ type WardrobeContextValue = {
   };
   /** Temporary developer helper — remove before production. */
   clearLocalDataAndRestore: () => Promise<{ success: boolean; error?: string }>;
+  refreshCloudRestore: () => Promise<void>;
 };
 
 const WardrobeContext = createContext<WardrobeContextValue | null>(null);
@@ -565,6 +566,27 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
     };
   }, [clothingItems, outfits, userOutfits, favorites]);
 
+  const refreshCloudRestore = useCallback(async () => {
+    try {
+      const [localItems, localOutfits] = await Promise.all([
+        loadUserItems(),
+        loadUserOutfits(),
+      ]);
+
+      const { items, outfits, changed } = await restoreFromCloud(
+        localItems,
+        localOutfits,
+      );
+
+      if (changed) {
+        setUserItems(items);
+        setUserOutfits(outfits);
+      }
+    } catch (error) {
+      console.warn('Supabase sync error (refresh from cloud):', error);
+    }
+  }, []);
+
   const clearLocalDataAndRestore = useCallback(async () => {
     setIsLoading(true);
 
@@ -642,6 +664,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       getRecentOutfits,
       getWardrobeStats,
       clearLocalDataAndRestore,
+      refreshCloudRestore,
     }),
     [
       clothingItems,
@@ -666,6 +689,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       getRecentOutfits,
       getWardrobeStats,
       clearLocalDataAndRestore,
+      refreshCloudRestore,
     ],
   );
 

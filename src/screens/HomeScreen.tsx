@@ -7,6 +7,7 @@ import {
   StatCard,
 } from '../components';
 import { colors, spacing, typography } from '../constants/theme';
+import { useAuth } from '../context/AuthContext';
 import { useWardrobe } from '../context/WardrobeContext';
 import { RootStackScreenProps } from '../navigation/types';
 
@@ -62,6 +63,7 @@ function getGreeting(): string {
 }
 
 export function HomeScreen({ navigation }: Props) {
+  const { profile } = useAuth();
   const {
     getRecentClothingItems,
     getRecentOutfits,
@@ -97,7 +99,9 @@ export function HomeScreen({ navigation }: Props) {
             style={styles.profileButton}
             onPress={() => navigation.navigate('Profile')}
           >
-            <Text style={styles.profileInitial}>G</Text>
+            <Text style={styles.profileInitial}>
+              {profile.displayName.charAt(0).toUpperCase()}
+            </Text>
           </Pressable>
         </View>
 
