@@ -168,5 +168,4 @@ export async function saveFavoritesForUser(
 export async function clearLocalWardrobeDataForUser(userId: string): Promise<void> {
   const { itemsKey, outfitsKey, favoritesKey } = getWardrobeStorageKeys(userId);
   await AsyncStorage.multiRemove([itemsKey, outfitsKey, favoritesKey]);
-  console.log('[Dev] Local data cleared for user:', userId);
 }

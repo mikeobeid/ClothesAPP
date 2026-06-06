@@ -1,5 +1,73 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session, User } from '@supabase/supabase-js';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
+
+function getSupabaseAuthStorageKey(): string | null {
+  const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+  if (!url) {
+    return null;
+  }
+
+  try {
+    const { hostname } = new URL(url);
+    const projectRef = hostname.split('.')[0];
+    return projectRef ? `sb-${projectRef}-auth-token` : null;
+  } catch {
+    return null;
+  }
+}
+
+function isSession(value: unknown): value is Session {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const session = value as Session;
+  return Boolean(session.user?.id && session.access_token);
+}
+
+function parseStoredSession(raw: string): Session | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    const record = parsed as Record<string, unknown>;
+    const candidates = [record.currentSession, record.session, parsed];
+
+    for (const candidate of candidates) {
+      if (isSession(candidate)) {
+        return candidate;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Reads cached session from AsyncStorage without network token refresh. */
+export async function getStoredSessionFast(): Promise<Session | null> {
+  const storageKey = getSupabaseAuthStorageKey();
+  if (!storageKey) {
+    return null;
+  }
+
+  try {
+    const raw = await AsyncStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+
+    return parseStoredSession(raw);
+  } catch (error) {
+    console.warn('[Auth] stored session read failed:', error);
+    return null;
+  }
+}
 
 export type AuthResult = {
   success: boolean;
@@ -118,14 +186,27 @@ export async function signOutUser(): Promise<AuthResult> {
 }
 
 export async function getCurrentSession(): Promise<Session | null> {
+  const cached = await getStoredSessionFast();
+  if (cached) {
+    return cached;
+  }
+
   const supabase = getSupabaseClient();
   if (!supabase) {
     return null;
   }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  try {
+    const sessionResult = await Promise.race([
+      supabase.auth.getSession().then(({ data }) => data.session),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), 3000);
+      }),
+    ]);
 
-  return session;
+    return sessionResult;
+  } catch (error) {
+    console.warn('[Auth] getSession failed:', error);
+    return null;
+  }
 }

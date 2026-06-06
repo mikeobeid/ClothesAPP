@@ -10,14 +10,11 @@ function getSupabaseEnv() {
 
   if (!envStatusLogged) {
     envStatusLogged = true;
-    console.log(
-      '[Supabase] EXPO_PUBLIC_SUPABASE_URL:',
-      url.length > 0 ? 'set' : 'missing',
-    );
-    console.log(
-      '[Supabase] EXPO_PUBLIC_SUPABASE_ANON_KEY:',
-      anonKey.length > 0 ? 'set' : 'missing',
-    );
+    if (!url || !anonKey) {
+      console.warn(
+        'Supabase env missing: set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY',
+      );
+    }
   }
 
   return { url, anonKey };

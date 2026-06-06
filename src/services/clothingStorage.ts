@@ -76,7 +76,6 @@ export async function uploadClothingImageToSupabase(
       return { success: false, error: 'Could not resolve public URL' };
     }
 
-    console.log('Image uploaded to Supabase Storage:', storagePath);
     return { success: true, publicUrl, storagePath };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { CLOTHING_CATEGORIES } from '../constants/clothing';
@@ -18,7 +19,11 @@ import {
   uploadOutfitToSupabase,
 } from '../services/wardrobeSync';
 import { ClothingItem, Outfit } from '../types';
-import { getCurrentAppUserId } from '../utils/userIdentity';
+import {
+  getCurrentAppUserId,
+  isAuthenticatedAppUser,
+  isGuestMode,
+} from '../utils/userIdentity';
 import {
   MOCK_CLOTHING_ITEMS,
   MOCK_OUTFITS,
@@ -78,7 +83,7 @@ type WardrobeContextValue = {
   };
   /** Temporary developer helper — remove before production. */
   clearLocalDataAndRestore: () => Promise<{ success: boolean; error?: string }>;
-  refreshCloudRestore: () => Promise<void>;
+  refreshCloudRestore: (options?: { force?: boolean }) => Promise<void>;
 };
 
 const WardrobeContext = createContext<WardrobeContextValue | null>(null);
@@ -219,10 +224,18 @@ async function restoreFromCloud(
       saveUserItemsForUser(userId, items),
       saveUserOutfitsForUser(userId, outfits),
     ]);
-    console.log('[Sync] merged cloud backup into local storage');
   }
 
   return { items, outfits, changed };
+}
+
+async function getRestoreKey(): Promise<string> {
+  const [userId, guestMode] = await Promise.all([
+    getCurrentAppUserId(),
+    isGuestMode(),
+  ]);
+
+  return `${userId}:${guestMode ? 'guest' : 'auth'}`;
 }
 
 export function WardrobeProvider({ children }: { children: ReactNode }) {
@@ -231,6 +244,9 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
   const [favorites, setFavorites] = useState<FavoritesState>(EMPTY_FAVORITES);
   const [includeMocks, setIncludeMocks] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const hasInitializedRef = useRef(false);
+  const lastRestoreKeyRef = useRef<string | null>(null);
+  const restoreInFlightRef = useRef(false);
 
   const applyLoadedWardrobe = useCallback(
     (loaded: Awaited<ReturnType<typeof loadWardrobeForCurrentUser>>) => {
@@ -242,29 +258,59 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const refreshCloudRestore = useCallback(async () => {
-    setIsLoading(true);
+  const refreshCloudRestore = useCallback(
+    async (options?: { force?: boolean }) => {
+      const restoreKey = await getRestoreKey();
 
-    try {
-      const loaded = await loadWardrobeForCurrentUser();
-      applyLoadedWardrobe(loaded);
-
-      const { items, outfits, changed } = await restoreFromCloud(
-        loaded.userId,
-        loaded.items,
-        loaded.outfits,
-      );
-
-      if (changed) {
-        setUserItems(items);
-        setUserOutfits(outfits);
+      if (
+        !options?.force &&
+        restoreInFlightRef.current &&
+        lastRestoreKeyRef.current === restoreKey
+      ) {
+        return;
       }
-    } catch (error) {
-      console.warn('Supabase sync error (refresh from cloud):', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [applyLoadedWardrobe]);
+
+      if (!options?.force && lastRestoreKeyRef.current === restoreKey) {
+        return;
+      }
+
+      restoreInFlightRef.current = true;
+      const isFirstInit = !hasInitializedRef.current;
+
+      if (isFirstInit) {
+        setIsLoading(true);
+      }
+
+      try {
+        const loaded = await loadWardrobeForCurrentUser();
+        applyLoadedWardrobe(loaded);
+
+        const shouldSyncCloud = await isAuthenticatedAppUser();
+
+        if (shouldSyncCloud) {
+          const { items, outfits, changed } = await restoreFromCloud(
+            loaded.userId,
+            loaded.items,
+            loaded.outfits,
+          );
+
+          if (changed) {
+            setUserItems(items);
+            setUserOutfits(outfits);
+          }
+        }
+
+        lastRestoreKeyRef.current = restoreKey;
+        hasInitializedRef.current = true;
+      } catch (error) {
+        console.warn('Wardrobe restore failed:', error);
+      } finally {
+        restoreInFlightRef.current = false;
+        setIsLoading(false);
+      }
+    },
+    [applyLoadedWardrobe],
+  );
 
   const clothingItems = useMemo(() => {
     if (includeMocks) {
@@ -548,8 +594,6 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       setUserOutfits([]);
       setFavorites(EMPTY_FAVORITES);
 
-      console.log('[Dev] Restore from Supabase started');
-
       const [clothingResult, outfitResult] = await Promise.all([
         fetchClothingItemsFromSupabase(),
         fetchOutfitsFromSupabase(),
@@ -558,7 +602,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       if (!clothingResult.success && !outfitResult.success) {
         const error =
           clothingResult.error ?? outfitResult.error ?? 'Restore failed';
-        console.warn('[Dev] Restore failed:', error);
+        console.warn('Developer restore failed:', error);
         return { success: false, error };
       }
 
@@ -566,14 +610,11 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       const outfits = outfitResult.success ? outfitResult.outfits : [];
 
       if (!clothingResult.success) {
-        console.warn(
-          '[Dev] Restore failed (clothing):',
-          clothingResult.error,
-        );
+        console.warn('Developer restore failed (clothing):', clothingResult.error);
       }
 
       if (!outfitResult.success) {
-        console.warn('[Dev] Restore failed (outfits):', outfitResult.error);
+        console.warn('Developer restore failed (outfits):', outfitResult.error);
       }
 
       await Promise.all([
@@ -584,11 +625,10 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       setUserItems(items);
       setUserOutfits(outfits);
 
-      console.log('[Dev] Restore from Supabase completed');
       return { success: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.warn('[Dev] Restore failed:', message);
+      console.warn('Developer restore failed:', message);
       return { success: false, error: message };
     } finally {
       setIsLoading(false);

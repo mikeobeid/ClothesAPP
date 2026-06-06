@@ -100,7 +100,7 @@ export function HomeScreen({ navigation }: Props) {
             onPress={() => navigation.navigate('Profile')}
           >
             <Text style={styles.profileInitial}>
-              {profile.displayName.charAt(0).toUpperCase()}
+              {(profile.username ?? profile.displayName).charAt(0).toUpperCase()}
             </Text>
           </Pressable>
         </View>

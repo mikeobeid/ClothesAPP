@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { ScreenContainer } from '../components';
 import { colors } from '../constants/theme';
@@ -7,25 +7,64 @@ import { RootStackScreenProps } from '../navigation/types';
 
 type Props = RootStackScreenProps<'Splash'>;
 
+const SPLASH_FALLBACK_MS = 3000;
+
 export function SplashScreen({ navigation }: Props) {
   const { isLoading, isAuthenticated, hasChosenGuest } = useAuth();
+  const hasNavigatedRef = useRef(false);
+  const authStateRef = useRef({
+    isAuthenticated,
+    hasChosenGuest,
+  });
+
+  authStateRef.current = {
+    isAuthenticated,
+    hasChosenGuest,
+  };
+
+  const navigateTo = (target: 'Home' | 'Login') => {
+    if (hasNavigatedRef.current) {
+      return;
+    }
+    hasNavigatedRef.current = true;
+
+    try {
+      navigation.replace(target);
+    } catch (error) {
+      hasNavigatedRef.current = false;
+      console.warn('Splash navigation failed:', error);
+    }
+  };
+
+  const navigateFromSplash = () => {
+    const { isAuthenticated: authed, hasChosenGuest: guestChosen } =
+      authStateRef.current;
+
+    if (authed || guestChosen) {
+      navigateTo('Home');
+      return;
+    }
+
+    navigateTo('Login');
+  };
 
   useEffect(() => {
     if (isLoading) {
       return;
     }
 
-    const timer = setTimeout(() => {
-      if (isAuthenticated || hasChosenGuest) {
-        navigation.replace('Home');
-        return;
-      }
+    navigateFromSplash();
+  }, [isLoading, isAuthenticated, hasChosenGuest]);
 
-      navigation.replace('Login');
-    }, 1500);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!hasNavigatedRef.current) {
+        navigateTo('Login');
+      }
+    }, SPLASH_FALLBACK_MS);
 
     return () => clearTimeout(timer);
-  }, [isLoading, isAuthenticated, hasChosenGuest, navigation]);
+  }, []);
 
   return (
     <ScreenContainer style={styles.container}>

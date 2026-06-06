@@ -5,7 +5,10 @@ import {
   isCloudImageUri,
   uploadClothingImageToSupabase,
 } from './clothingStorage';
-import { getCurrentAppUserId } from '../utils/userIdentity';
+import {
+  getCurrentAppUserId,
+  isAuthenticatedAppUser,
+} from '../utils/userIdentity';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 
 export type SyncResult = {
@@ -19,7 +22,6 @@ function logSyncError(action: string, error: unknown) {
 }
 
 function skipResult(reason: string): SyncResult {
-  console.log(`[Sync] Skipped: ${reason}`);
   return { success: false, error: reason };
 }
 
@@ -118,6 +120,10 @@ export async function uploadClothingItemToSupabase(
     return skipResult('Supabase client unavailable');
   }
 
+  if (!(await isAuthenticatedAppUser())) {
+    return skipResult('Guest mode or unauthenticated');
+  }
+
   try {
     const userId = await getCurrentAppUserId();
     const row = await toClothesRow(item, userId);
@@ -128,7 +134,6 @@ export async function uploadClothingItemToSupabase(
       return { success: false, error: error.message };
     }
 
-    console.log('Item uploaded to Supabase:', item.id, item.name);
     return { success: true };
   } catch (error) {
     logSyncError('upload clothing item', error);
@@ -151,6 +156,10 @@ export async function fetchClothingItemsFromSupabase(): Promise<{
   const supabase = getSupabaseClient();
   if (!supabase) {
     return { success: false, items: [], error: 'Supabase client unavailable' };
+  }
+
+  if (!(await isAuthenticatedAppUser())) {
+    return { success: false, items: [], error: 'Guest mode or unauthenticated' };
   }
 
   try {
@@ -190,6 +199,10 @@ export async function updateClothingItemInSupabase(
     return skipResult('Supabase client unavailable');
   }
 
+  if (!(await isAuthenticatedAppUser())) {
+    return skipResult('Guest mode or unauthenticated');
+  }
+
   try {
     const userId = await getCurrentAppUserId();
     const row = await toClothesRow(item, userId);
@@ -200,7 +213,6 @@ export async function updateClothingItemInSupabase(
       return { success: false, error: error.message };
     }
 
-    console.log('Item updated in Supabase:', item.id, item.name);
     return { success: true };
   } catch (error) {
     logSyncError('update clothing item', error);
@@ -223,6 +235,10 @@ export async function deleteClothingItemFromSupabase(
     return skipResult('Supabase client unavailable');
   }
 
+  if (!(await isAuthenticatedAppUser())) {
+    return skipResult('Guest mode or unauthenticated');
+  }
+
   try {
     const userId = await getCurrentAppUserId();
     const { error } = await supabase
@@ -236,7 +252,6 @@ export async function deleteClothingItemFromSupabase(
       return { success: false, error: error.message };
     }
 
-    console.log('Item deleted from Supabase:', itemId);
     return { success: true };
   } catch (error) {
     logSyncError('delete clothing item', error);
@@ -257,6 +272,10 @@ export async function uploadOutfitToSupabase(
   const supabase = getSupabaseClient();
   if (!supabase) {
     return skipResult('Supabase client unavailable');
+  }
+
+  if (!(await isAuthenticatedAppUser())) {
+    return skipResult('Guest mode or unauthenticated');
   }
 
   try {
@@ -298,7 +317,6 @@ export async function uploadOutfitToSupabase(
       }
     }
 
-    console.log('Outfit uploaded to Supabase:', outfit.id, outfit.name);
     return { success: true };
   } catch (error) {
     logSyncError('upload outfit', error);
@@ -321,6 +339,10 @@ export async function fetchOutfitsFromSupabase(): Promise<{
   const supabase = getSupabaseClient();
   if (!supabase) {
     return { success: false, outfits: [], error: 'Supabase client unavailable' };
+  }
+
+  if (!(await isAuthenticatedAppUser())) {
+    return { success: false, outfits: [], error: 'Guest mode or unauthenticated' };
   }
 
   try {
@@ -373,6 +395,10 @@ export async function deleteOutfitFromSupabase(
     return skipResult('Supabase client unavailable');
   }
 
+  if (!(await isAuthenticatedAppUser())) {
+    return skipResult('Guest mode or unauthenticated');
+  }
+
   try {
     const userId = await getCurrentAppUserId();
     const { error } = await supabase
@@ -386,7 +412,6 @@ export async function deleteOutfitFromSupabase(
       return { success: false, error: error.message };
     }
 
-    console.log('Outfit deleted from Supabase:', outfitId);
     return { success: true };
   } catch (error) {
     logSyncError('delete outfit', error);

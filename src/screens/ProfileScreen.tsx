@@ -8,10 +8,14 @@ import { RootStackScreenProps } from '../navigation/types';
 type Props = RootStackScreenProps<'Profile'>;
 
 export function ProfileScreen({ navigation }: Props) {
-  const { profile, isAuthenticated, signOut } = useAuth();
+  const { profile, isAuthenticated, user, signOut } = useAuth();
   const { clearLocalDataAndRestore, isLoading } = useWardrobe();
   const [isClearing, setIsClearing] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const avatarLetter = (profile.username ?? profile.displayName)
+    .charAt(0)
+    .toUpperCase();
 
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to log out?', [
@@ -70,9 +74,7 @@ export function ProfileScreen({ navigation }: Props) {
     <ScreenContainer scrollable>
       <View style={styles.content}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {profile.displayName.charAt(0).toUpperCase()}
-          </Text>
+          <Text style={styles.avatarText}>{avatarLetter}</Text>
         </View>
 
         <Text style={styles.name}>
@@ -90,8 +92,24 @@ export function ProfileScreen({ navigation }: Props) {
 
           {isAuthenticated ? (
             <>
+              <Text style={styles.label}>Username</Text>
+              <Text style={styles.value}>
+                @{profile.username ?? profile.displayName}
+              </Text>
+
+              {profile.displayName &&
+              profile.username &&
+              profile.displayName !== profile.username ? (
+                <>
+                  <Text style={styles.label}>Display Name</Text>
+                  <Text style={styles.value}>{profile.displayName}</Text>
+                </>
+              ) : null}
+
               <Text style={styles.label}>Email</Text>
-              <Text style={styles.value}>{profile.email ?? '—'}</Text>
+              <Text style={styles.value}>
+                {profile.email ?? user?.email ?? '—'}
+              </Text>
             </>
           ) : (
             <>
@@ -128,14 +146,17 @@ export function ProfileScreen({ navigation }: Props) {
         )}
 
         <View style={styles.devSection}>
-          <Text style={styles.devBadge}>TEMPORARY / DEVELOPER ONLY</Text>
-          <Text style={styles.devTitle}>Developer Tools</Text>
+          <Text style={styles.devBadge}>DEVELOPER / TEST ONLY</Text>
+          <Text style={styles.devTitle}>Developer / Test Tools</Text>
+          {isAuthenticated && user ? (
+            <Text style={styles.devMeta}>Internal user id: {user.id}</Text>
+          ) : null}
           <Text style={styles.devDescription}>
             Clears AsyncStorage wardrobe data on this device, then reloads items
             and outfits from Supabase. Cloud records are not deleted.
           </Text>
           <Button
-            title="Clear Local Data"
+            title="Clear Local Data (Test Only)"
             variant="danger"
             onPress={handleClearLocalData}
             disabled={isLoading || isClearing || isSigningOut}
@@ -222,6 +243,10 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: '#1A1A1A',
+  },
+  devMeta: {
+    fontSize: 12,
+    color: '#9CA3AF',
   },
   devDescription: {
     fontSize: 14,
