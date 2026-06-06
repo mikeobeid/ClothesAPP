@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getStoredSessionFast } from '../services/authService';
+import { getCurrentSession } from '../services/authService';
 
 const GUEST_USER_ID_KEY = '@wardrobe_guest_user_id';
 const GUEST_MODE_KEY = '@wardrobe_guest_mode';
@@ -33,13 +33,21 @@ export async function isGuestMode(): Promise<boolean> {
   return value === 'true';
 }
 
+export async function getAppUserIdMode(): Promise<'auth' | 'guest'> {
+  if (await isGuestMode()) {
+    return 'guest';
+  }
+
+  const session = await getCurrentSession();
+  return session?.user?.id ? 'auth' : 'guest';
+}
+
 export async function isAuthenticatedAppUser(): Promise<boolean> {
-  const guestMode = await isGuestMode();
-  if (guestMode) {
+  if (await isGuestMode()) {
     return false;
   }
 
-  const session = await getStoredSessionFast();
+  const session = await getCurrentSession();
   return Boolean(session?.user?.id);
 }
 
@@ -47,7 +55,7 @@ export async function getCurrentAppUserId(): Promise<string> {
   const guestMode = await isGuestMode();
 
   if (!guestMode) {
-    const session = await getStoredSessionFast();
+    const session = await getCurrentSession();
     if (session?.user?.id) {
       return session.user.id;
     }

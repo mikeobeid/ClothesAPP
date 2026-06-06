@@ -49,20 +49,39 @@ function parseStoredSession(raw: string): Session | null {
   }
 }
 
-/** Reads cached session from AsyncStorage without network token refresh. */
-export async function getStoredSessionFast(): Promise<Session | null> {
-  const storageKey = getSupabaseAuthStorageKey();
-  if (!storageKey) {
+async function readSessionFromStorageKey(key: string): Promise<Session | null> {
+  const raw = await AsyncStorage.getItem(key);
+  if (!raw) {
     return null;
   }
 
+  return parseStoredSession(raw);
+}
+
+/** Reads cached session from AsyncStorage without network token refresh. */
+export async function getStoredSessionFast(): Promise<Session | null> {
   try {
-    const raw = await AsyncStorage.getItem(storageKey);
-    if (!raw) {
-      return null;
+    const storageKey = getSupabaseAuthStorageKey();
+    if (storageKey) {
+      const session = await readSessionFromStorageKey(storageKey);
+      if (session) {
+        return session;
+      }
     }
 
-    return parseStoredSession(raw);
+    const allKeys = await AsyncStorage.getAllKeys();
+    const authKeys = allKeys.filter(
+      (key) => key.startsWith('sb-') && key.endsWith('-auth-token'),
+    );
+
+    for (const key of authKeys) {
+      const session = await readSessionFromStorageKey(key);
+      if (session) {
+        return session;
+      }
+    }
+
+    return null;
   } catch (error) {
     console.warn('[Auth] stored session read failed:', error);
     return null;

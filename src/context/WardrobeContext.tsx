@@ -20,10 +20,11 @@ import {
 } from '../services/wardrobeSync';
 import { ClothingItem, Outfit } from '../types';
 import {
+  getAppUserIdMode,
   getCurrentAppUserId,
-  isAuthenticatedAppUser,
   isGuestMode,
 } from '../utils/userIdentity';
+import { isSupabaseConfigured } from '../services/supabase';
 import {
   MOCK_CLOTHING_ITEMS,
   MOCK_OUTFITS,
@@ -285,9 +286,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
         const loaded = await loadWardrobeForCurrentUser();
         applyLoadedWardrobe(loaded);
 
-        const shouldSyncCloud = await isAuthenticatedAppUser();
-
-        if (shouldSyncCloud) {
+        if (isSupabaseConfigured()) {
           const { items, outfits, changed } = await restoreFromCloud(
             loaded.userId,
             loaded.items,
@@ -347,19 +346,45 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
   );
 
   const addClothingItem = useCallback(async (input: AddClothingInput) => {
+    console.log('[AddItem] save started');
+
     const newItem: ClothingItem = {
       ...input,
       id: `user-${Date.now()}`,
       createdAt: new Date().toISOString(),
     };
 
+    let updatedItems: ClothingItem[] = [];
     setUserItems((prev) => {
-      const updated = [newItem, ...prev];
-      persistUserItems(updated);
-      return updated;
+      updatedItems = [newItem, ...prev];
+      return updatedItems;
     });
 
-    syncSafely(() => uploadClothingItemToSupabase(newItem));
+    const userIdMode = await getAppUserIdMode();
+    console.log(`[AddItem] current user id resolved: ${userIdMode}`);
+
+    try {
+      const userId = await getCurrentAppUserId();
+      await saveUserItemsForUser(userId, updatedItems);
+      console.log('[AddItem] local save completed');
+    } catch (error) {
+      console.warn('[AddItem] local save failed:', error);
+      persistUserItems(updatedItems);
+    }
+
+    try {
+      const syncResult = await uploadClothingItemToSupabase(newItem);
+      if (!syncResult.success) {
+        console.warn(
+          '[AddItem] database upload failed:',
+          syncResult.error ?? 'Unknown sync error',
+        );
+      } else if (syncResult.error) {
+        console.warn('[AddItem] database upload warning:', syncResult.error);
+      }
+    } catch (error) {
+      console.warn('[AddItem] database upload failed:', error);
+    }
 
     return newItem;
   }, []);
@@ -392,15 +417,30 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
 
   const deleteClothingItem = useCallback(
     async (id: string) => {
+      console.log('[DeleteItem] delete started');
+      console.log('[DeleteItem] item id:', id);
+
       if (!isUserClothingItem(id)) {
         return false;
       }
 
+      const itemToDelete = userItems.find((item) => item.id === id);
+      let updatedItems: ClothingItem[] = [];
+
       setUserItems((prev) => {
-        const updated = prev.filter((item) => item.id !== id);
-        persistUserItems(updated);
-        return updated;
+        updatedItems = prev.filter((item) => item.id !== id);
+        return updatedItems;
       });
+
+      try {
+        const userId = await getCurrentAppUserId();
+        await saveUserItemsForUser(userId, updatedItems);
+      } catch (error) {
+        console.warn('[DeleteItem] local delete persist failed:', error);
+        persistUserItems(updatedItems);
+      }
+
+      console.log('[DeleteItem] local delete completed');
 
       setUserOutfits((prev) => {
         const updated = pruneOutfitsAfterItemRemoval(prev, id);
@@ -423,7 +463,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
         return updated;
       });
 
-      syncSafely(() => deleteClothingItemFromSupabase(id));
+      console.log('[DeleteItem] removed item from outfits completed');
 
       setFavorites((prev) => {
         const updated = {
@@ -434,9 +474,16 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
         return updated;
       });
 
+      try {
+        await deleteClothingItemFromSupabase(id, itemToDelete?.imageUri);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn('[DeleteItem] Supabase database delete failed:', message);
+      }
+
       return true;
     },
-    [isUserClothingItem],
+    [isUserClothingItem, userItems],
   );
 
   const toggleClothingFavorite = useCallback(async (id: string) => {

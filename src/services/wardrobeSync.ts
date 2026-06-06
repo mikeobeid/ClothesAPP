@@ -2,13 +2,12 @@ import { ClothingItem, Outfit } from '../types';
 import { ClothesRow, OutfitItemRow, OutfitRow } from '../types/supabase';
 import { normalizeRestoredImageUri } from '../utils/clothingImage';
 import {
+  deleteClothingImageFromSupabase,
   isCloudImageUri,
+  planClothingImageStorageDelete,
   uploadClothingImageToSupabase,
 } from './clothingStorage';
-import {
-  getCurrentAppUserId,
-  isAuthenticatedAppUser,
-} from '../utils/userIdentity';
+import { getAppUserIdMode, getCurrentAppUserId } from '../utils/userIdentity';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 
 export type SyncResult = {
@@ -25,17 +24,45 @@ function skipResult(reason: string): SyncResult {
   return { success: false, error: reason };
 }
 
+async function logSyncUploadMode(): Promise<void> {
+  const mode = await getAppUserIdMode();
+  if (mode === 'guest') {
+    console.log('[Sync] uploading as guest user');
+  } else {
+    console.log('[Sync] uploading as auth user');
+  }
+}
+
+function getSupabaseOrSkip(): {
+  supabase: ReturnType<typeof getSupabaseClient>;
+  error?: SyncResult;
+} {
+  if (!isSupabaseConfigured()) {
+    return { supabase: null, error: skipResult('Supabase not configured') };
+  }
+
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return { supabase: null, error: skipResult('Supabase client unavailable') };
+  }
+
+  return { supabase };
+}
+
 async function resolveCloudImageUri(
   item: ClothingItem,
   userId: string,
-): Promise<string | null> {
+): Promise<{ imageUri: string | null; storageError?: string }> {
   if (!item.imageUri) {
-    return null;
+    return { imageUri: null };
   }
 
   if (isCloudImageUri(item.imageUri)) {
-    return item.imageUri;
+    console.log('[AddItem] storage upload completed');
+    return { imageUri: item.imageUri };
   }
+
+  console.log('[AddItem] storage upload started');
 
   const uploadResult = await uploadClothingImageToSupabase(
     item.imageUri,
@@ -44,26 +71,40 @@ async function resolveCloudImageUri(
   );
 
   if (uploadResult.success && uploadResult.publicUrl) {
-    return uploadResult.publicUrl;
+    console.log('[AddItem] storage upload completed');
+    return { imageUri: uploadResult.publicUrl };
   }
 
-  return null;
+  console.warn(
+    '[AddItem] storage upload failed:',
+    uploadResult.error ?? 'Unknown storage error',
+  );
+  return {
+    imageUri: null,
+    storageError: uploadResult.error ?? 'Unknown storage error',
+  };
 }
 
-async function toClothesRow(item: ClothingItem, userId: string): Promise<ClothesRow> {
-  const imageUri = await resolveCloudImageUri(item, userId);
+async function toClothesRow(
+  item: ClothingItem,
+  userId: string,
+): Promise<{ row: ClothesRow; storageError?: string }> {
+  const { imageUri, storageError } = await resolveCloudImageUri(item, userId);
 
   return {
-    id: item.id,
-    user_id: userId,
-    name: item.name,
-    category: item.category,
-    color: item.color,
-    season: item.season,
-    occasion: item.occasion,
-    image_uri: imageUri,
-    notes: item.notes ?? null,
-    created_at: item.createdAt,
+    row: {
+      id: item.id,
+      user_id: userId,
+      name: item.name,
+      category: item.category,
+      color: item.color,
+      season: item.season,
+      occasion: item.occasion,
+      image_uri: imageUri,
+      notes: item.notes ?? null,
+      created_at: item.createdAt,
+    },
+    storageError,
   };
 }
 
@@ -111,35 +152,42 @@ function fromOutfitRows(
 export async function uploadClothingItemToSupabase(
   item: ClothingItem,
 ): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) {
-    return skipResult('Supabase not configured');
-  }
+  console.log('[AddItem] database upload started');
 
-  const supabase = getSupabaseClient();
+  const { supabase, error: setupError } = getSupabaseOrSkip();
   if (!supabase) {
-    return skipResult('Supabase client unavailable');
-  }
-
-  if (!(await isAuthenticatedAppUser())) {
-    return skipResult('Guest mode or unauthenticated');
+    console.warn('[AddItem] database upload failed:', setupError?.error);
+    return setupError ?? skipResult('Supabase unavailable');
   }
 
   try {
+    await logSyncUploadMode();
     const userId = await getCurrentAppUserId();
-    const row = await toClothesRow(item, userId);
+    const { row, storageError } = await toClothesRow(item, userId);
     const { error } = await supabase.from('clothes').upsert(row);
 
     if (error) {
       logSyncError('upload clothing item', error.message);
+      console.warn('[AddItem] database upload failed:', error.message);
       return { success: false, error: error.message };
+    }
+
+    console.log('[AddItem] database upload completed');
+    if (storageError) {
+      return {
+        success: true,
+        error: `Saved without image: ${storageError}`,
+      };
     }
 
     return { success: true };
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     logSyncError('upload clothing item', error);
+    console.warn('[AddItem] database upload failed:', message);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: message,
     };
   }
 }
@@ -149,17 +197,13 @@ export async function fetchClothingItemsFromSupabase(): Promise<{
   items: ClothingItem[];
   error?: string;
 }> {
-  if (!isSupabaseConfigured()) {
-    return { success: false, items: [], error: 'Supabase not configured' };
-  }
-
-  const supabase = getSupabaseClient();
+  const { supabase, error: setupError } = getSupabaseOrSkip();
   if (!supabase) {
-    return { success: false, items: [], error: 'Supabase client unavailable' };
-  }
-
-  if (!(await isAuthenticatedAppUser())) {
-    return { success: false, items: [], error: 'Guest mode or unauthenticated' };
+    return {
+      success: false,
+      items: [],
+      error: setupError?.error ?? 'Supabase unavailable',
+    };
   }
 
   try {
@@ -190,22 +234,15 @@ export async function fetchClothingItemsFromSupabase(): Promise<{
 export async function updateClothingItemInSupabase(
   item: ClothingItem,
 ): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) {
-    return skipResult('Supabase not configured');
-  }
-
-  const supabase = getSupabaseClient();
+  const { supabase, error: setupError } = getSupabaseOrSkip();
   if (!supabase) {
-    return skipResult('Supabase client unavailable');
-  }
-
-  if (!(await isAuthenticatedAppUser())) {
-    return skipResult('Guest mode or unauthenticated');
+    return setupError ?? skipResult('Supabase unavailable');
   }
 
   try {
+    await logSyncUploadMode();
     const userId = await getCurrentAppUserId();
-    const row = await toClothesRow(item, userId);
+    const { row } = await toClothesRow(item, userId);
     const { error } = await supabase.from('clothes').upsert(row);
 
     if (error) {
@@ -225,22 +262,19 @@ export async function updateClothingItemInSupabase(
 
 export async function deleteClothingItemFromSupabase(
   itemId: string,
+  imageUri?: string | null,
 ): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) {
-    return skipResult('Supabase not configured');
-  }
-
-  const supabase = getSupabaseClient();
+  const { supabase, error: setupError } = getSupabaseOrSkip();
   if (!supabase) {
-    return skipResult('Supabase client unavailable');
-  }
-
-  if (!(await isAuthenticatedAppUser())) {
-    return skipResult('Guest mode or unauthenticated');
+    const message = setupError?.error ?? 'Supabase unavailable';
+    console.warn('[DeleteItem] Supabase database delete failed:', message);
+    return setupError ?? skipResult('Supabase unavailable');
   }
 
   try {
     const userId = await getCurrentAppUserId();
+    console.log('[DeleteItem] Supabase database delete started');
+
     const { error } = await supabase
       .from('clothes')
       .delete()
@@ -249,15 +283,52 @@ export async function deleteClothingItemFromSupabase(
 
     if (error) {
       logSyncError('delete clothing item', error.message);
+      console.warn('[DeleteItem] Supabase database delete failed:', error.message);
       return { success: false, error: error.message };
+    }
+
+    console.log('[DeleteItem] Supabase database delete completed');
+
+    const storagePlan = planClothingImageStorageDelete(imageUri, userId, itemId);
+
+    if (storagePlan.action === 'skip') {
+      console.log(
+        '[DeleteItem] Supabase storage delete skipped:',
+        storagePlan.skipReason ?? 'local image or no cloud image',
+      );
+      return { success: true };
+    }
+
+    console.log('[DeleteItem] Supabase storage delete started');
+
+    const storageResult = await deleteClothingImageFromSupabase(
+      userId,
+      itemId,
+      imageUri,
+    );
+
+    if (storageResult.skipped) {
+      console.log(
+        '[DeleteItem] Supabase storage delete skipped:',
+        storageResult.skipReason ?? 'local image or no cloud image',
+      );
+    } else if (storageResult.success) {
+      console.log('[DeleteItem] Supabase storage delete completed');
+    } else {
+      console.warn(
+        '[DeleteItem] Supabase storage delete failed:',
+        storageResult.error ?? 'Unknown storage error',
+      );
     }
 
     return { success: true };
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     logSyncError('delete clothing item', error);
+    console.warn('[DeleteItem] Supabase database delete failed:', message);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: message,
     };
   }
 }
@@ -265,20 +336,13 @@ export async function deleteClothingItemFromSupabase(
 export async function uploadOutfitToSupabase(
   outfit: Outfit,
 ): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) {
-    return skipResult('Supabase not configured');
-  }
-
-  const supabase = getSupabaseClient();
+  const { supabase, error: setupError } = getSupabaseOrSkip();
   if (!supabase) {
-    return skipResult('Supabase client unavailable');
-  }
-
-  if (!(await isAuthenticatedAppUser())) {
-    return skipResult('Guest mode or unauthenticated');
+    return setupError ?? skipResult('Supabase unavailable');
   }
 
   try {
+    await logSyncUploadMode();
     const userId = await getCurrentAppUserId();
     const { error: outfitError } = await supabase
       .from('outfits')
@@ -332,17 +396,13 @@ export async function fetchOutfitsFromSupabase(): Promise<{
   outfits: Outfit[];
   error?: string;
 }> {
-  if (!isSupabaseConfigured()) {
-    return { success: false, outfits: [], error: 'Supabase not configured' };
-  }
-
-  const supabase = getSupabaseClient();
+  const { supabase, error: setupError } = getSupabaseOrSkip();
   if (!supabase) {
-    return { success: false, outfits: [], error: 'Supabase client unavailable' };
-  }
-
-  if (!(await isAuthenticatedAppUser())) {
-    return { success: false, outfits: [], error: 'Guest mode or unauthenticated' };
+    return {
+      success: false,
+      outfits: [],
+      error: setupError?.error ?? 'Supabase unavailable',
+    };
   }
 
   try {
@@ -386,17 +446,9 @@ export async function fetchOutfitsFromSupabase(): Promise<{
 export async function deleteOutfitFromSupabase(
   outfitId: string,
 ): Promise<SyncResult> {
-  if (!isSupabaseConfigured()) {
-    return skipResult('Supabase not configured');
-  }
-
-  const supabase = getSupabaseClient();
+  const { supabase, error: setupError } = getSupabaseOrSkip();
   if (!supabase) {
-    return skipResult('Supabase client unavailable');
-  }
-
-  if (!(await isAuthenticatedAppUser())) {
-    return skipResult('Guest mode or unauthenticated');
+    return setupError ?? skipResult('Supabase unavailable');
   }
 
   try {
