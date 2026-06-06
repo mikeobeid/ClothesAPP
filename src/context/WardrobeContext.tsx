@@ -18,12 +18,15 @@ import {
   uploadClothingItemToSupabase,
   uploadOutfitToSupabase,
 } from '../services/wardrobeSync';
-import { ClothingItem, Outfit } from '../types';
 import {
-  getAppUserIdMode,
-  getCurrentAppUserId,
-  isGuestMode,
-} from '../utils/userIdentity';
+  ClothingItem,
+  ClothingSaveResult,
+  DeleteResult,
+  Outfit,
+  OutfitSaveResult,
+} from '../types';
+import { getCurrentAppUserId, isGuestMode } from '../utils/userIdentity';
+import { getCloudSyncWarning } from '../utils/syncMessages';
 import { isSupabaseConfigured } from '../services/supabase';
 import {
   MOCK_CLOTHING_ITEMS,
@@ -52,19 +55,20 @@ type UpdateClothingInput = Partial<
 type WardrobeContextValue = {
   clothingItems: ClothingItem[];
   userItems: ClothingItem[];
+  userOutfits: Outfit[];
   outfits: Outfit[];
   isLoading: boolean;
-  addClothingItem: (item: AddClothingInput) => Promise<ClothingItem>;
+  addClothingItem: (item: AddClothingInput) => Promise<ClothingSaveResult>;
   updateClothingItem: (
     id: string,
     updates: UpdateClothingInput,
   ) => Promise<boolean>;
-  deleteClothingItem: (id: string) => Promise<boolean>;
+  deleteClothingItem: (id: string) => Promise<DeleteResult>;
   toggleClothingFavorite: (id: string) => Promise<void>;
   isClothingFavorite: (id: string) => boolean;
   isUserClothingItem: (id: string) => boolean;
-  addOutfit: (outfit: AddOutfitInput) => Promise<Outfit>;
-  deleteOutfit: (id: string) => Promise<boolean>;
+  addOutfit: (outfit: AddOutfitInput) => Promise<OutfitSaveResult>;
+  deleteOutfit: (id: string) => Promise<DeleteResult>;
   toggleOutfitFavorite: (id: string) => Promise<void>;
   isOutfitFavorite: (id: string) => boolean;
   isUserOutfit: (id: string) => boolean;
@@ -346,8 +350,6 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
   );
 
   const addClothingItem = useCallback(async (input: AddClothingInput) => {
-    console.log('[AddItem] save started');
-
     const newItem: ClothingItem = {
       ...input,
       id: `user-${Date.now()}`,
@@ -360,33 +362,28 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       return updatedItems;
     });
 
-    const userIdMode = await getAppUserIdMode();
-    console.log(`[AddItem] current user id resolved: ${userIdMode}`);
-
     try {
       const userId = await getCurrentAppUserId();
       await saveUserItemsForUser(userId, updatedItems);
-      console.log('[AddItem] local save completed');
     } catch (error) {
-      console.warn('[AddItem] local save failed:', error);
+      console.warn('Local clothing save failed:', error);
       persistUserItems(updatedItems);
     }
 
+    let cloudSyncWarning: string | undefined;
     try {
       const syncResult = await uploadClothingItemToSupabase(newItem);
-      if (!syncResult.success) {
-        console.warn(
-          '[AddItem] database upload failed:',
-          syncResult.error ?? 'Unknown sync error',
-        );
-      } else if (syncResult.error) {
-        console.warn('[AddItem] database upload warning:', syncResult.error);
+      cloudSyncWarning = getCloudSyncWarning(syncResult);
+      if (cloudSyncWarning) {
+        console.warn('Clothing cloud sync failed:', cloudSyncWarning);
       }
     } catch (error) {
-      console.warn('[AddItem] database upload failed:', error);
+      console.warn('Clothing cloud sync failed:', error);
+      cloudSyncWarning =
+        'Cloud backup could not be updated. Your item is saved on this device.';
     }
 
-    return newItem;
+    return { item: newItem, cloudSyncWarning };
   }, []);
 
   const updateClothingItem = useCallback(
@@ -417,11 +414,8 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
 
   const deleteClothingItem = useCallback(
     async (id: string) => {
-      console.log('[DeleteItem] delete started');
-      console.log('[DeleteItem] item id:', id);
-
       if (!isUserClothingItem(id)) {
-        return false;
+        return { success: false };
       }
 
       const itemToDelete = userItems.find((item) => item.id === id);
@@ -436,11 +430,9 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
         const userId = await getCurrentAppUserId();
         await saveUserItemsForUser(userId, updatedItems);
       } catch (error) {
-        console.warn('[DeleteItem] local delete persist failed:', error);
+        console.warn('Local clothing delete failed:', error);
         persistUserItems(updatedItems);
       }
-
-      console.log('[DeleteItem] local delete completed');
 
       setUserOutfits((prev) => {
         const updated = pruneOutfitsAfterItemRemoval(prev, id);
@@ -463,8 +455,6 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
         return updated;
       });
 
-      console.log('[DeleteItem] removed item from outfits completed');
-
       setFavorites((prev) => {
         const updated = {
           ...prev,
@@ -474,14 +464,23 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
         return updated;
       });
 
+      let cloudSyncWarning: string | undefined;
       try {
-        await deleteClothingItemFromSupabase(id, itemToDelete?.imageUri);
+        const syncResult = await deleteClothingItemFromSupabase(
+          id,
+          itemToDelete?.imageUri,
+        );
+        cloudSyncWarning = getCloudSyncWarning(syncResult);
+        if (cloudSyncWarning) {
+          console.warn('Clothing cloud delete failed:', cloudSyncWarning);
+        }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn('[DeleteItem] Supabase database delete failed:', message);
+        console.warn('Clothing cloud delete failed:', error);
+        cloudSyncWarning =
+          'Cloud backup could not be updated. The item was removed on this device.';
       }
 
-      return true;
+      return { success: true, cloudSyncWarning };
     },
     [isUserClothingItem, userItems],
   );
@@ -507,30 +506,55 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
       createdAt: new Date().toISOString(),
     };
 
+    let updatedOutfits: Outfit[] = [];
     setUserOutfits((prev) => {
-      const updated = [newOutfit, ...prev];
-      persistUserOutfits(updated);
-      return updated;
+      updatedOutfits = [newOutfit, ...prev];
+      return updatedOutfits;
     });
 
-    syncSafely(() => uploadOutfitToSupabase(newOutfit));
+    try {
+      const userId = await getCurrentAppUserId();
+      await saveUserOutfitsForUser(userId, updatedOutfits);
+    } catch (error) {
+      console.warn('Local outfit save failed:', error);
+      persistUserOutfits(updatedOutfits);
+    }
 
-    return newOutfit;
+    let cloudSyncWarning: string | undefined;
+    try {
+      const syncResult = await uploadOutfitToSupabase(newOutfit);
+      cloudSyncWarning = getCloudSyncWarning(syncResult);
+      if (cloudSyncWarning) {
+        console.warn('Outfit cloud sync failed:', cloudSyncWarning);
+      }
+    } catch (error) {
+      console.warn('Outfit cloud sync failed:', error);
+      cloudSyncWarning =
+        'Cloud backup could not be updated. Your outfit is saved on this device.';
+    }
+
+    return { outfit: newOutfit, cloudSyncWarning };
   }, []);
 
   const deleteOutfit = useCallback(
     async (id: string) => {
       if (!isUserOutfit(id)) {
-        return false;
+        return { success: false };
       }
 
+      let updatedOutfits: Outfit[] = [];
       setUserOutfits((prev) => {
-        const updated = prev.filter((outfit) => outfit.id !== id);
-        persistUserOutfits(updated);
-        return updated;
+        updatedOutfits = prev.filter((outfit) => outfit.id !== id);
+        return updatedOutfits;
       });
 
-      syncSafely(() => deleteOutfitFromSupabase(id));
+      try {
+        const userId = await getCurrentAppUserId();
+        await saveUserOutfitsForUser(userId, updatedOutfits);
+      } catch (error) {
+        console.warn('Local outfit delete failed:', error);
+        persistUserOutfits(updatedOutfits);
+      }
 
       setFavorites((prev) => {
         const updated = {
@@ -541,7 +565,20 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
         return updated;
       });
 
-      return true;
+      let cloudSyncWarning: string | undefined;
+      try {
+        const syncResult = await deleteOutfitFromSupabase(id);
+        cloudSyncWarning = getCloudSyncWarning(syncResult);
+        if (cloudSyncWarning) {
+          console.warn('Outfit cloud delete failed:', cloudSyncWarning);
+        }
+      } catch (error) {
+        console.warn('Outfit cloud delete failed:', error);
+        cloudSyncWarning =
+          'Cloud backup could not be updated. The outfit was removed on this device.';
+      }
+
+      return { success: true, cloudSyncWarning };
     },
     [isUserOutfit],
   );
@@ -686,6 +723,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
     () => ({
       clothingItems,
       userItems,
+      userOutfits,
       outfits,
       isLoading,
       addClothingItem,
@@ -711,6 +749,7 @@ export function WardrobeProvider({ children }: { children: ReactNode }) {
     [
       clothingItems,
       userItems,
+      userOutfits,
       outfits,
       isLoading,
       addClothingItem,

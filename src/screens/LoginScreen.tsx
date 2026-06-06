@@ -52,7 +52,9 @@ export function LoginScreen({ navigation }: Props) {
     <ScreenContainer scrollable>
       <View style={styles.content}>
         <Text style={styles.title}>Welcome Back</Text>
-        <Text style={styles.subtitle}>Sign in to your wardrobe</Text>
+        <Text style={styles.subtitle}>
+          Sign in to back up your wardrobe and sync across devices.
+        </Text>
 
         <View style={styles.form}>
           <Input

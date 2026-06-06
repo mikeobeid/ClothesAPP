@@ -26,7 +26,8 @@ const FAVORITES_FILTER = 'Favorites';
 const FILTER_CHIP_ROW_HEIGHT = 44;
 
 export function WardrobeScreen({ navigation }: Props) {
-  const { clothingItems, isClothingFavorite, isLoading } = useWardrobe();
+  const { clothingItems, userItems, isClothingFavorite, isLoading } =
+    useWardrobe();
   const [selectedCategory, setSelectedCategory] = useState(ALL_FILTER);
 
   useLayoutEffect(() => {
@@ -71,6 +72,7 @@ export function WardrobeScreen({ navigation }: Props) {
 
   const hasActiveFilters =
     favoritesOnly || selectedCategory !== ALL_FILTER || searchQuery.trim().length > 0;
+  const hasOwnItems = userItems.length > 0;
 
   const filterOptions = [ALL_FILTER, FAVORITES_FILTER, ...CLOTHING_CATEGORIES];
 
@@ -156,15 +158,23 @@ export function WardrobeScreen({ navigation }: Props) {
           ) : (
             <EmptyState
               icon={hasActiveFilters ? '◇' : '✧'}
-              title={hasActiveFilters ? 'No matching items' : 'Your wardrobe is empty'}
-              message={
+              title={
                 hasActiveFilters
-                  ? 'Try adjusting your search or filters to find what you are looking for.'
-                  : 'Start building your closet by adding your first clothing item.'
+                  ? 'No matching items'
+                  : hasOwnItems
+                    ? 'No items match'
+                    : 'Your wardrobe is empty'
               }
-              actionTitle={hasActiveFilters ? undefined : 'Add Clothing'}
+              message={
+                hasActiveFilters || hasOwnItems
+                  ? 'Try adjusting your search or filters to find what you are looking for.'
+                  : 'Add photos of your clothes to start building outfits and getting smart suggestions.'
+              }
+              actionTitle={
+                hasActiveFilters || hasOwnItems ? undefined : 'Add Clothing'
+              }
               onAction={
-                hasActiveFilters
+                hasActiveFilters || hasOwnItems
                   ? undefined
                   : () => navigation.navigate('AddClothing')
               }

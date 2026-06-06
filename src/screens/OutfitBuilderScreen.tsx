@@ -6,6 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { showCloudSyncWarning } from '../utils/syncMessages';
 import {
   Button,
   ClothingImage,
@@ -35,6 +36,7 @@ export function OutfitBuilderScreen({ navigation }: Props) {
   const [season, setSeason] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [errors, setErrors] = useState<FormErrors>({});
+  const [isSaving, setIsSaving] = useState(false);
 
   const selectedItems = useMemo(
     () =>
@@ -78,18 +80,27 @@ export function OutfitBuilderScreen({ navigation }: Props) {
   };
 
   const handleSave = async () => {
-    if (!validate()) {
+    if (!validate() || isSaving) {
       return;
     }
 
-    await addOutfit({
-      name: name.trim(),
-      clothingItemIds: selectedIds,
-      occasion: occasion || 'Casual',
-      season: season || 'All-Season',
-    });
+    setIsSaving(true);
+    try {
+      const result = await addOutfit({
+        name: name.trim(),
+        clothingItemIds: selectedIds,
+        occasion: occasion || 'Casual',
+        season: season || 'All-Season',
+      });
 
-    resetToSavedOutfits(navigation);
+      showCloudSyncWarning(
+        'Outfit saved',
+        result.cloudSyncWarning,
+        () => resetToSavedOutfits(navigation),
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (isLoading) {
@@ -197,7 +208,12 @@ export function OutfitBuilderScreen({ navigation }: Props) {
         ))}
 
         <View style={styles.saveButton}>
-          <Button title="Save Outfit" onPress={handleSave} />
+          <Button
+            title={isSaving ? 'Saving outfit...' : 'Save Outfit'}
+            onPress={handleSave}
+            loading={isSaving}
+            disabled={isSaving}
+          />
         </View>
       </View>
     </ScreenContainer>

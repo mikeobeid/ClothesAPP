@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { showCloudSyncWarning } from '../utils/syncMessages';
 import { Button, ClothingImage, ScreenContainer } from '../components';
 import { useWardrobe } from '../context/WardrobeContext';
 import { RootStackScreenProps } from '../navigation/types';
@@ -16,6 +18,7 @@ export function OutfitDetailsScreen({ route, navigation }: Props) {
   } = useWardrobe();
 
   const { outfitId } = route.params;
+  const [isDeleting, setIsDeleting] = useState(false);
   const outfit = getOutfitById(outfitId);
   const items = outfit ? getClothingItemsForOutfit(outfit) : [];
   const isFavorite = isOutfitFavorite(outfitId);
@@ -31,8 +34,20 @@ export function OutfitDetailsScreen({ route, navigation }: Props) {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            await deleteOutfit(outfitId);
-            navigation.goBack();
+            setIsDeleting(true);
+            try {
+              const result = await deleteOutfit(outfitId);
+              if (!result.success) {
+                return;
+              }
+              showCloudSyncWarning(
+                'Outfit deleted',
+                result.cloudSyncWarning,
+                () => navigation.goBack(),
+              );
+            } finally {
+              setIsDeleting(false);
+            }
           },
         },
       ],
@@ -89,9 +104,11 @@ export function OutfitDetailsScreen({ route, navigation }: Props) {
           />
           {canDelete ? (
             <Button
-              title="Delete Outfit"
+              title={isDeleting ? 'Deleting...' : 'Delete Outfit'}
               variant="danger"
               onPress={handleDelete}
+              loading={isDeleting}
+              disabled={isDeleting}
             />
           ) : (
             <Text style={styles.sampleNote}>

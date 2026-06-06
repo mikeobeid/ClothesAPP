@@ -7,7 +7,7 @@ import {
   planClothingImageStorageDelete,
   uploadClothingImageToSupabase,
 } from './clothingStorage';
-import { getAppUserIdMode, getCurrentAppUserId } from '../utils/userIdentity';
+import { getCurrentAppUserId } from '../utils/userIdentity';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 
 export type SyncResult = {
@@ -22,15 +22,6 @@ function logSyncError(action: string, error: unknown) {
 
 function skipResult(reason: string): SyncResult {
   return { success: false, error: reason };
-}
-
-async function logSyncUploadMode(): Promise<void> {
-  const mode = await getAppUserIdMode();
-  if (mode === 'guest') {
-    console.log('[Sync] uploading as guest user');
-  } else {
-    console.log('[Sync] uploading as auth user');
-  }
 }
 
 function getSupabaseOrSkip(): {
@@ -58,11 +49,8 @@ async function resolveCloudImageUri(
   }
 
   if (isCloudImageUri(item.imageUri)) {
-    console.log('[AddItem] storage upload completed');
     return { imageUri: item.imageUri };
   }
-
-  console.log('[AddItem] storage upload started');
 
   const uploadResult = await uploadClothingImageToSupabase(
     item.imageUri,
@@ -71,12 +59,11 @@ async function resolveCloudImageUri(
   );
 
   if (uploadResult.success && uploadResult.publicUrl) {
-    console.log('[AddItem] storage upload completed');
     return { imageUri: uploadResult.publicUrl };
   }
 
   console.warn(
-    '[AddItem] storage upload failed:',
+    'Clothing image upload failed:',
     uploadResult.error ?? 'Unknown storage error',
   );
   return {
@@ -152,27 +139,21 @@ function fromOutfitRows(
 export async function uploadClothingItemToSupabase(
   item: ClothingItem,
 ): Promise<SyncResult> {
-  console.log('[AddItem] database upload started');
-
   const { supabase, error: setupError } = getSupabaseOrSkip();
   if (!supabase) {
-    console.warn('[AddItem] database upload failed:', setupError?.error);
     return setupError ?? skipResult('Supabase unavailable');
   }
 
   try {
-    await logSyncUploadMode();
     const userId = await getCurrentAppUserId();
     const { row, storageError } = await toClothesRow(item, userId);
     const { error } = await supabase.from('clothes').upsert(row);
 
     if (error) {
       logSyncError('upload clothing item', error.message);
-      console.warn('[AddItem] database upload failed:', error.message);
       return { success: false, error: error.message };
     }
 
-    console.log('[AddItem] database upload completed');
     if (storageError) {
       return {
         success: true,
@@ -184,7 +165,6 @@ export async function uploadClothingItemToSupabase(
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     logSyncError('upload clothing item', error);
-    console.warn('[AddItem] database upload failed:', message);
     return {
       success: false,
       error: message,
@@ -240,7 +220,6 @@ export async function updateClothingItemInSupabase(
   }
 
   try {
-    await logSyncUploadMode();
     const userId = await getCurrentAppUserId();
     const { row } = await toClothesRow(item, userId);
     const { error } = await supabase.from('clothes').upsert(row);
@@ -266,14 +245,11 @@ export async function deleteClothingItemFromSupabase(
 ): Promise<SyncResult> {
   const { supabase, error: setupError } = getSupabaseOrSkip();
   if (!supabase) {
-    const message = setupError?.error ?? 'Supabase unavailable';
-    console.warn('[DeleteItem] Supabase database delete failed:', message);
     return setupError ?? skipResult('Supabase unavailable');
   }
 
   try {
     const userId = await getCurrentAppUserId();
-    console.log('[DeleteItem] Supabase database delete started');
 
     const { error } = await supabase
       .from('clothes')
@@ -283,23 +259,8 @@ export async function deleteClothingItemFromSupabase(
 
     if (error) {
       logSyncError('delete clothing item', error.message);
-      console.warn('[DeleteItem] Supabase database delete failed:', error.message);
       return { success: false, error: error.message };
     }
-
-    console.log('[DeleteItem] Supabase database delete completed');
-
-    const storagePlan = planClothingImageStorageDelete(imageUri, userId, itemId);
-
-    if (storagePlan.action === 'skip') {
-      console.log(
-        '[DeleteItem] Supabase storage delete skipped:',
-        storagePlan.skipReason ?? 'local image or no cloud image',
-      );
-      return { success: true };
-    }
-
-    console.log('[DeleteItem] Supabase storage delete started');
 
     const storageResult = await deleteClothingImageFromSupabase(
       userId,
@@ -307,16 +268,9 @@ export async function deleteClothingItemFromSupabase(
       imageUri,
     );
 
-    if (storageResult.skipped) {
-      console.log(
-        '[DeleteItem] Supabase storage delete skipped:',
-        storageResult.skipReason ?? 'local image or no cloud image',
-      );
-    } else if (storageResult.success) {
-      console.log('[DeleteItem] Supabase storage delete completed');
-    } else {
+    if (!storageResult.skipped && !storageResult.success) {
       console.warn(
-        '[DeleteItem] Supabase storage delete failed:',
+        'Clothing image delete failed:',
         storageResult.error ?? 'Unknown storage error',
       );
     }
@@ -325,7 +279,6 @@ export async function deleteClothingItemFromSupabase(
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     logSyncError('delete clothing item', error);
-    console.warn('[DeleteItem] Supabase database delete failed:', message);
     return {
       success: false,
       error: message,
@@ -342,8 +295,8 @@ export async function uploadOutfitToSupabase(
   }
 
   try {
-    await logSyncUploadMode();
     const userId = await getCurrentAppUserId();
+
     const { error: outfitError } = await supabase
       .from('outfits')
       .upsert(toOutfitRow(outfit, userId));
@@ -383,10 +336,11 @@ export async function uploadOutfitToSupabase(
 
     return { success: true };
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     logSyncError('upload outfit', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: message,
     };
   }
 }
@@ -453,6 +407,7 @@ export async function deleteOutfitFromSupabase(
 
   try {
     const userId = await getCurrentAppUserId();
+
     const { error } = await supabase
       .from('outfits')
       .delete()
@@ -466,10 +421,11 @@ export async function deleteOutfitFromSupabase(
 
     return { success: true };
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     logSyncError('delete outfit', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: message,
     };
   }
 }

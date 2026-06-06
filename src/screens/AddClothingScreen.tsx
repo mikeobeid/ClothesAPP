@@ -1,6 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   StyleSheet,
@@ -18,6 +19,7 @@ import { colors, radius, spacing, typography } from '../constants/theme';
 import { useWardrobe } from '../context/WardrobeContext';
 import { resetToWardrobe } from '../navigation/navigationHelpers';
 import { RootStackScreenProps } from '../navigation/types';
+import { showCloudSyncWarning } from '../utils/syncMessages';
 
 type Props = RootStackScreenProps<'AddClothing'>;
 
@@ -38,27 +40,37 @@ export function AddClothingScreen({ navigation }: Props) {
   const [occasion, setOccasion] = useState<string[]>([]);
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isPickingImage, setIsPickingImage] = useState(false);
 
   const pickImage = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        'Permission needed',
-        'Please allow photo library access to add clothing images.',
-      );
+    if (isSaving || isPickingImage) {
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.8,
-    });
+    setIsPickingImage(true);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Permission needed',
+          'Please allow photo library access to add clothing images.',
+        );
+        return;
+      }
 
-    if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
-      setErrors((prev) => ({ ...prev, image: undefined }));
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setImageUri(result.assets[0].uri);
+        setErrors((prev) => ({ ...prev, image: undefined }));
+      }
+    } finally {
+      setIsPickingImage(false);
     }
   };
 
@@ -98,7 +110,7 @@ export function AddClothingScreen({ navigation }: Props) {
 
     setIsSaving(true);
     try {
-      await addClothingItem({
+      const result = await addClothingItem({
         name: name.trim(),
         category,
         color: color || 'Gray',
@@ -107,7 +119,11 @@ export function AddClothingScreen({ navigation }: Props) {
         imageUri,
       });
 
-      resetToWardrobe(navigation);
+      showCloudSyncWarning(
+        'Item saved',
+        result.cloudSyncWarning,
+        () => resetToWardrobe(navigation),
+      );
     } finally {
       setIsSaving(false);
     }
@@ -127,14 +143,19 @@ export function AddClothingScreen({ navigation }: Props) {
           <Text style={styles.sectionTitle}>Photo *</Text>
           <Pressable
             onPress={pickImage}
-            disabled={isSaving}
+            disabled={isSaving || isPickingImage}
             style={({ pressed }) => [
               styles.photoArea,
               errors.image && styles.photoAreaError,
               pressed && styles.photoAreaPressed,
             ]}
           >
-            {imageUri ? (
+            {isPickingImage ? (
+              <View style={styles.uploadingOverlay}>
+                <ActivityIndicator size="large" color={colors.primary} />
+                <Text style={styles.uploadingText}>Opening gallery...</Text>
+              </View>
+            ) : imageUri ? (
               <View style={styles.previewWrap}>
                 <ClothingImage
                   imageUri={imageUri}
@@ -174,7 +195,7 @@ export function AddClothingScreen({ navigation }: Props) {
                 setErrors((prev) => ({ ...prev, name: undefined }));
               }
             }}
-            editable={!isSaving}
+            editable={!isSaving && !isPickingImage}
           />
           {errors.name ? (
             <Text style={[styles.errorText, styles.fieldError]}>{errors.name}</Text>
@@ -217,10 +238,10 @@ export function AddClothingScreen({ navigation }: Props) {
 
         <View style={styles.saveButton}>
           <Button
-            title={isSaving ? 'Saving...' : 'Save Item'}
+            title={isSaving ? 'Saving & uploading...' : 'Save Item'}
             onPress={handleSave}
             loading={isSaving}
-            disabled={isSaving}
+            disabled={isSaving || isPickingImage}
           />
         </View>
       </View>
@@ -332,5 +353,15 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     marginTop: spacing.sm,
+  },
+  uploadingOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.surfaceMuted,
+  },
+  uploadingText: {
+    ...typography.caption,
   },
 });

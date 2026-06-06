@@ -13,8 +13,13 @@ import { RootStackScreenProps } from '../navigation/types';
 type Props = RootStackScreenProps<'SavedOutfits'>;
 
 export function SavedOutfitsScreen({ navigation }: Props) {
-  const { outfits, getClothingItemsForOutfit, isOutfitFavorite, isLoading } =
-    useWardrobe();
+  const {
+    outfits,
+    userOutfits,
+    getClothingItemsForOutfit,
+    isOutfitFavorite,
+    isLoading,
+  } = useWardrobe();
   const [favoritesOnly, setFavoritesOnly] = useState(false);
 
   const hasOutfitFavorites = useMemo(
@@ -85,11 +90,17 @@ export function SavedOutfitsScreen({ navigation }: Props) {
         ) : (
           <EmptyState
             icon={favoritesOnly ? '♡' : '✧'}
-            title={favoritesOnly ? 'No favorite outfits' : 'No saved outfits yet'}
+            title={
+              favoritesOnly
+                ? 'No favorite outfits'
+                : userOutfits.length > 0
+                  ? 'No outfits to show'
+                  : 'No saved outfits yet'
+            }
             message={
               favoritesOnly
-                ? 'Favorite an outfit from its details screen to see it here.'
-                : 'Build your first look in the Outfit Builder and save it here.'
+                ? 'Tap the heart on any outfit to save it here for quick access.'
+                : 'Combine pieces from your wardrobe in Outfit Builder, then save looks you love.'
             }
             actionTitle={favoritesOnly ? undefined : 'Build Outfit'}
             onAction={

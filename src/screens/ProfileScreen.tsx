@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { Button, ScreenContainer } from '../components';
+import { colors, radius, spacing, typography } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useWardrobe } from '../context/WardrobeContext';
 import { RootStackScreenProps } from '../navigation/types';
@@ -13,9 +14,10 @@ export function ProfileScreen({ navigation }: Props) {
   const [isClearing, setIsClearing] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
-  const avatarLetter = (profile.username ?? profile.displayName)
-    .charAt(0)
-    .toUpperCase();
+  const displayName = isAuthenticated
+    ? profile.username ?? profile.displayName
+    : 'Guest';
+  const avatarLetter = displayName.charAt(0).toUpperCase();
 
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to log out?', [
@@ -77,47 +79,29 @@ export function ProfileScreen({ navigation }: Props) {
           <Text style={styles.avatarText}>{avatarLetter}</Text>
         </View>
 
-        <Text style={styles.name}>
-          {isAuthenticated ? profile.displayName : 'Guest'}
-        </Text>
-        <Text style={styles.badge}>
-          {isAuthenticated ? 'Logged In' : 'Guest Mode'}
-        </Text>
+        <Text style={styles.name}>{displayName}</Text>
+        {isAuthenticated && profile.username ? (
+          <Text style={styles.username}>@{profile.username}</Text>
+        ) : null}
 
         <View style={styles.infoSection}>
-          <Text style={styles.label}>Mode</Text>
+          <Text style={styles.label}>Email</Text>
           <Text style={styles.value}>
-            {isAuthenticated ? 'Logged In' : 'Guest Mode'}
+            {isAuthenticated
+              ? profile.email ?? user?.email ?? '—'
+              : 'Not signed in'}
           </Text>
-
-          {isAuthenticated ? (
-            <>
-              <Text style={styles.label}>Username</Text>
-              <Text style={styles.value}>
-                @{profile.username ?? profile.displayName}
-              </Text>
-
-              {profile.displayName &&
-              profile.username &&
-              profile.displayName !== profile.username ? (
-                <>
-                  <Text style={styles.label}>Display Name</Text>
-                  <Text style={styles.value}>{profile.displayName}</Text>
-                </>
-              ) : null}
-
-              <Text style={styles.label}>Email</Text>
-              <Text style={styles.value}>
-                {profile.email ?? user?.email ?? '—'}
-              </Text>
-            </>
-          ) : (
-            <>
-              <Text style={styles.label}>Email</Text>
-              <Text style={styles.value}>Not signed in</Text>
-            </>
-          )}
         </View>
+
+        {!isAuthenticated ? (
+          <View style={styles.guestBanner}>
+            <Text style={styles.guestBannerTitle}>Sign in for cloud backup</Text>
+            <Text style={styles.guestBannerText}>
+              Guest mode works on this device. Create an account to back up your
+              wardrobe and access it on other devices.
+            </Text>
+          </View>
+        ) : null}
 
         {isAuthenticated ? (
           <View style={styles.actionSection}>
@@ -145,23 +129,26 @@ export function ProfileScreen({ navigation }: Props) {
           </View>
         )}
 
-        <View style={styles.devSection}>
-          <Text style={styles.devBadge}>DEVELOPER / TEST ONLY</Text>
-          <Text style={styles.devTitle}>Developer / Test Tools</Text>
-          {isAuthenticated && user ? (
-            <Text style={styles.devMeta}>Internal user id: {user.id}</Text>
-          ) : null}
-          <Text style={styles.devDescription}>
-            Clears AsyncStorage wardrobe data on this device, then reloads items
-            and outfits from Supabase. Cloud records are not deleted.
-          </Text>
-          <Button
-            title="Clear Local Data (Test Only)"
-            variant="danger"
-            onPress={handleClearLocalData}
-            disabled={isLoading || isClearing || isSigningOut}
-          />
-        </View>
+        {__DEV__ ? (
+          <View style={styles.devSection}>
+            <Text style={styles.devBadge}>Developer only</Text>
+            <Text style={styles.devTitle}>Test tools</Text>
+            {isAuthenticated && user ? (
+              <Text style={styles.devMeta}>User id: {user.id}</Text>
+            ) : null}
+            <Text style={styles.devDescription}>
+              Clears local wardrobe data on this device, then reloads from
+              Supabase. Cloud records are not deleted.
+            </Text>
+            <Button
+              title="Clear Local Data"
+              variant="danger"
+              onPress={handleClearLocalData}
+              disabled={isLoading || isClearing || isSigningOut}
+              loading={isClearing}
+            />
+          </View>
+        ) : null}
       </View>
     </ScreenContainer>
   );
@@ -170,63 +157,72 @@ export function ProfileScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   content: {
     alignItems: 'center',
-    paddingVertical: 24,
+    paddingVertical: spacing.xxl,
   },
   avatar: {
     width: 80,
     height: 80,
-    borderRadius: 40,
-    backgroundColor: '#E5E7EB',
+    borderRadius: radius.full,
+    backgroundColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: spacing.lg,
   },
   avatarText: {
     fontSize: 32,
     fontWeight: '600',
-    color: '#6B7280',
+    color: colors.textMuted,
   },
   name: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginBottom: 8,
+    ...typography.heading,
+    marginBottom: spacing.xs,
   },
-  badge: {
-    fontSize: 14,
-    color: '#6B7280',
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 8,
-    marginBottom: 32,
+  username: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginBottom: spacing.xl,
   },
   infoSection: {
     width: '100%',
-    gap: 4,
-    marginBottom: 24,
-  },
-  actionSection: {
-    width: '100%',
-    marginBottom: 24,
-    gap: 12,
+    gap: spacing.xs,
+    marginBottom: spacing.xl,
   },
   label: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#6B7280',
-    marginTop: 12,
+    color: colors.textMuted,
+    marginTop: spacing.md,
   },
   value: {
     fontSize: 16,
-    color: '#1A1A1A',
+    color: colors.text,
+  },
+  guestBanner: {
+    width: '100%',
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+  },
+  guestBannerTitle: {
+    ...typography.subheading,
+    marginBottom: spacing.xs,
+  },
+  guestBannerText: {
+    ...typography.caption,
+    lineHeight: 22,
+  },
+  actionSection: {
+    width: '100%',
+    gap: spacing.md,
   },
   devSection: {
     width: '100%',
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    paddingTop: 24,
-    gap: 12,
+    borderTopColor: colors.border,
+    paddingTop: spacing.xxl,
+    marginTop: spacing.xxl,
+    gap: spacing.md,
   },
   devBadge: {
     alignSelf: 'flex-start',
@@ -240,18 +236,14 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   devTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#1A1A1A',
+    ...typography.subheading,
   },
   devMeta: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: colors.textMuted,
   },
   devDescription: {
-    fontSize: 14,
-    color: '#6B7280',
+    ...typography.caption,
     lineHeight: 20,
-    marginBottom: 4,
   },
 });
