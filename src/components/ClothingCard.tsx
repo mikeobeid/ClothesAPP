@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { COLORS } from '../constants/clothing';
 import { cardBase, colors, radius, spacing } from '../constants/theme';
 import { ClothingItem } from '../types';
+import { formatShortDate } from '../utils/dateFormat';
 import { ClothingImage } from './ClothingImage';
 
 type ClothingCardProps = {
@@ -9,6 +10,8 @@ type ClothingCardProps = {
   onPress?: () => void;
   compact?: boolean;
   isFavorite?: boolean;
+  wearCount?: number;
+  lastWornDate?: string;
 };
 
 export function ClothingCard({
@@ -16,6 +19,8 @@ export function ClothingCard({
   onPress,
   compact = false,
   isFavorite = false,
+  wearCount,
+  lastWornDate,
 }: ClothingCardProps) {
   const colorHex = COLORS.find((c) => c.name === item.color)?.hex ?? '#E5E7EB';
 
@@ -41,11 +46,21 @@ export function ClothingCard({
             <Text style={styles.favoriteText}>♥</Text>
           </View>
         ) : null}
+        {wearCount && wearCount > 0 ? (
+          <View style={styles.wearBadge}>
+            <Text style={styles.wearBadgeText}>Worn {wearCount}x</Text>
+          </View>
+        ) : null}
       </View>
       <View style={[styles.details, compact && styles.detailsCompact]}>
         <Text style={[styles.name, compact && styles.nameCompact]} numberOfLines={1}>
           {item.name}
         </Text>
+        {lastWornDate ? (
+          <Text style={styles.lastWorn} numberOfLines={1}>
+            Last worn {formatShortDate(lastWornDate)}
+          </Text>
+        ) : null}
         <View style={styles.chips}>
           <View style={styles.chip}>
             <Text style={styles.chipText}>{item.category}</Text>
@@ -107,6 +122,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.favorite,
   },
+  wearBadge: {
+    position: 'absolute',
+    bottom: spacing.sm,
+    left: spacing.sm,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+  },
+  wearBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.primaryDark,
+  },
   details: {
     padding: spacing.lg,
   },
@@ -122,6 +151,11 @@ const styles = StyleSheet.create({
   nameCompact: {
     fontSize: 14,
     marginBottom: 6,
+  },
+  lastWorn: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginBottom: spacing.sm,
   },
   chips: {
     flexDirection: 'row',

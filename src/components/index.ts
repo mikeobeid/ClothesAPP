@@ -11,3 +11,7 @@ export { FilterChip } from './FilterChip';
 export { SelectionGroup } from './SelectionGroup';
 export { OutfitSelectableItem } from './OutfitSelectableItem';
 export { SuggestedOutfitCard } from './SuggestedOutfitCard';
+export { MannequinSilhouette } from './MannequinSilhouette';
+export { MannequinPreview } from './MannequinPreview';
+export { DatePickerModal } from './DatePickerModal';
+export { DatePickerField } from './DatePickerField';

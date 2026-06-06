@@ -1,3 +1,9 @@
+export const CLOTHING_CONDITIONS = [
+  { label: 'Unspecified', value: 'unspecified' },
+  { label: 'New', value: 'new' },
+  { label: 'Old', value: 'old' },
+] as const;
+
 export const CLOTHING_CATEGORIES = [
   'Tops',
   'Bottoms',

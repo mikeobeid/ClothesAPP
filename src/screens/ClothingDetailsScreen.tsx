@@ -1,31 +1,60 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { showCloudSyncWarning } from '../utils/syncMessages';
 import { Button, ClothingImage, ScreenContainer } from '../components';
-import { COLORS } from '../constants/clothing';
+import { CLOTHING_CONDITIONS, COLORS } from '../constants/clothing';
+import { colors, spacing, typography } from '../constants/theme';
+import { useWearLog } from '../context/WearLogContext';
 import { useWardrobe } from '../context/WardrobeContext';
 import { RootStackScreenProps } from '../navigation/types';
+import { formatShortDate } from '../utils/dateFormat';
 
 type Props = RootStackScreenProps<'ClothingDetails'>;
+
+function formatConditionLabel(condition?: string): string | null {
+  if (!condition || condition === 'unspecified') {
+    return null;
+  }
+
+  return (
+    CLOTHING_CONDITIONS.find((entry) => entry.value === condition)?.label ??
+    condition
+  );
+}
 
 export function ClothingDetailsScreen({ route, navigation }: Props) {
   const {
     getClothingItemById,
+    getOutfitById,
     isClothingFavorite,
     isUserClothingItem,
     toggleClothingFavorite,
     deleteClothingItem,
   } = useWardrobe();
+  const { getWearStatsForItem, getWearHistoryForItem } = useWearLog();
 
   const { itemId } = route.params;
   const [isDeleting, setIsDeleting] = useState(false);
   const item = getClothingItemById(itemId);
   const isFavorite = isClothingFavorite(itemId);
   const canManage = isUserClothingItem(itemId);
+  const wearStats = getWearStatsForItem(itemId);
+
+  const resolveOutfitName = useMemo(
+    () => (outfitId?: string) =>
+      outfitId ? getOutfitById(outfitId)?.name : undefined,
+    [getOutfitById],
+  );
+
+  const wearHistory = useMemo(
+    () => getWearHistoryForItem(itemId, resolveOutfitName),
+    [getWearHistoryForItem, itemId, resolveOutfitName],
+  );
 
   const colorHex = item
     ? COLORS.find((c) => c.name === item.color)?.hex ?? '#E5E7EB'
     : '#E5E7EB';
+  const conditionLabel = item ? formatConditionLabel(item.condition) : null;
 
   const handleDelete = () => {
     Alert.alert(
@@ -81,6 +110,28 @@ export function ClothingDetailsScreen({ route, navigation }: Props) {
         <Text style={styles.title}>{item.name}</Text>
         <Text style={styles.meta}>{item.category}</Text>
 
+        <View style={styles.wearCard}>
+          <Text style={styles.wearTitle}>
+            Worn {wearStats.wearCount} time{wearStats.wearCount === 1 ? '' : 's'}
+          </Text>
+          <Text style={styles.wearMeta}>
+            Last worn:{' '}
+            {wearStats.lastWornDate
+              ? formatShortDate(wearStats.lastWornDate)
+              : 'Not logged yet'}
+          </Text>
+          {wearStats.contextsWornIn.length > 0 ? (
+            <Text style={styles.wearMeta}>
+              Contexts worn in: {wearStats.contextsWornIn.join(', ')}
+            </Text>
+          ) : null}
+          {wearStats.mostCommonContext ? (
+            <Text style={styles.wearMeta}>
+              Most common context: {wearStats.mostCommonContext}
+            </Text>
+          ) : null}
+        </View>
+
         <View style={styles.detailsSection}>
           <Text style={styles.label}>Color</Text>
           <View style={styles.colorRow}>
@@ -98,12 +149,59 @@ export function ClothingDetailsScreen({ route, navigation }: Props) {
             {item.occasion.length > 0 ? item.occasion.join(', ') : '—'}
           </Text>
 
+          {conditionLabel ? (
+            <>
+              <Text style={styles.label}>Condition</Text>
+              <Text style={styles.value}>{conditionLabel}</Text>
+            </>
+          ) : null}
+
+          {item.purchaseDate ? (
+            <>
+              <Text style={styles.label}>Purchase Date</Text>
+              <Text style={styles.value}>
+                {formatShortDate(item.purchaseDate)}
+              </Text>
+            </>
+          ) : null}
+
           {item.notes ? (
             <>
               <Text style={styles.label}>Notes</Text>
               <Text style={styles.value}>{item.notes}</Text>
             </>
           ) : null}
+        </View>
+
+        <View style={styles.historySection}>
+          <Text style={styles.historyTitle}>Wear History</Text>
+          {wearHistory.length > 0 ? (
+            wearHistory.map((entry) => (
+              <View key={entry.logId} style={styles.historyRow}>
+                <Text style={styles.historyDate}>
+                  {formatShortDate(entry.date)}
+                </Text>
+                <View style={styles.historyDetails}>
+                  {entry.wearContextName ? (
+                    <Text style={styles.historyContext}>
+                      {entry.wearContextName}
+                    </Text>
+                  ) : null}
+                  {entry.outfitName ? (
+                    <Text style={styles.historyLine}>{entry.outfitName}</Text>
+                  ) : null}
+                  {entry.notes ? (
+                    <Text style={styles.historyNotes}>{entry.notes}</Text>
+                  ) : null}
+                  {!entry.wearContextName && !entry.outfitName && !entry.notes ? (
+                    <Text style={styles.historyLine}>Logged wear</Text>
+                  ) : null}
+                </View>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.historyEmpty}>No wear history yet.</Text>
+          )}
         </View>
 
         <View style={styles.actions}>
@@ -142,79 +240,130 @@ export function ClothingDetailsScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   content: {
-    paddingVertical: 8,
-    paddingBottom: 32,
+    paddingVertical: spacing.sm,
+    paddingBottom: spacing.xxxl,
   },
   image: {
     width: '100%',
     aspectRatio: 3 / 4,
     borderRadius: 16,
-    marginBottom: 24,
+    marginBottom: spacing.xxl,
   },
   imagePlaceholder: {
     width: '100%',
     aspectRatio: 3 / 4,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: colors.surfaceMuted,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
-  },
-  imagePlaceholderText: {
-    fontSize: 64,
-    fontWeight: '600',
-    color: '#D1D5DB',
+    marginBottom: spacing.xxl,
   },
   title: {
     fontSize: 26,
     fontWeight: '700',
-    color: '#1A1A1A',
+    color: colors.text,
     marginBottom: 4,
   },
   meta: {
     fontSize: 15,
-    color: '#6B7280',
-    marginBottom: 24,
+    color: colors.textMuted,
+    marginBottom: spacing.lg,
+  },
+  wearCard: {
+    backgroundColor: colors.primaryLight,
+    borderRadius: 14,
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+  },
+  wearTitle: {
+    ...typography.subheading,
+    marginBottom: spacing.xs,
+  },
+  wearMeta: {
+    ...typography.caption,
+    marginTop: 2,
   },
   detailsSection: {
     gap: 4,
-    marginBottom: 28,
+    marginBottom: spacing.xl,
+  },
+  historySection: {
+    marginBottom: spacing.xl,
+  },
+  historyTitle: {
+    ...typography.subheading,
+    marginBottom: spacing.md,
+  },
+  historyRow: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    borderRadius: 14,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  historyDate: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: spacing.xs,
+  },
+  historyDetails: {
+    gap: 2,
+  },
+  historyContext: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.primaryDark,
+    marginBottom: 2,
+  },
+  historyLine: {
+    ...typography.caption,
+    color: colors.text,
+  },
+  historyNotes: {
+    ...typography.small,
+    fontStyle: 'italic',
+  },
+  historyEmpty: {
+    ...typography.caption,
+    lineHeight: 22,
   },
   label: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#6B7280',
-    marginTop: 12,
+    color: colors.textMuted,
+    marginTop: spacing.md,
   },
   value: {
     fontSize: 16,
-    color: '#1A1A1A',
+    color: colors.text,
   },
   colorRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
   },
   colorDot: {
     width: 16,
     height: 16,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.border,
   },
   actions: {
-    gap: 12,
+    gap: spacing.md,
   },
   sampleNote: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: colors.textMuted,
     textAlign: 'center',
     marginTop: 4,
   },
   notFound: {
     fontSize: 16,
-    color: '#6B7280',
+    color: colors.textMuted,
     textAlign: 'center',
-    marginTop: 32,
+    marginTop: spacing.xxxl,
   },
 });

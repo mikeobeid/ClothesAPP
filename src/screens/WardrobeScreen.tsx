@@ -1,4 +1,5 @@
-import { useLayoutEffect, useMemo, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Pressable,
@@ -16,19 +17,33 @@ import {
 } from '../components';
 import { CLOTHING_CATEGORIES } from '../constants/clothing';
 import { colors, spacing, typography } from '../constants/theme';
+import {
+  reloadWearContextsForCurrentUser,
+  useWearContext,
+} from '../context/WearContextContext';
+import { useWearLog } from '../context/WearLogContext';
 import { useWardrobe } from '../context/WardrobeContext';
 import { RootStackScreenProps } from '../navigation/types';
+import {
+  clothingItemMatchesSearch,
+  itemWasWornInContext,
+} from '../utils/wearStats';
 
 type Props = RootStackScreenProps<'Wardrobe'>;
 
 const ALL_FILTER = 'All';
 const FAVORITES_FILTER = 'Favorites';
+const ALL_CONTEXTS_FILTER = 'All contexts';
 const FILTER_CHIP_ROW_HEIGHT = 44;
 
 export function WardrobeScreen({ navigation }: Props) {
   const { clothingItems, userItems, isClothingFavorite, isLoading } =
     useWardrobe();
+  const { wearLogs, getWearStatsForItem } = useWearLog();
+  const { wearContexts } = useWearContext();
   const [selectedCategory, setSelectedCategory] = useState(ALL_FILTER);
+  const [selectedWearContext, setSelectedWearContext] =
+    useState(ALL_CONTEXTS_FILTER);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -51,6 +66,16 @@ export function WardrobeScreen({ navigation }: Props) {
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const wearContextFilters = useMemo(
+    () => [ALL_CONTEXTS_FILTER, ...wearContexts.map((context) => context.name)],
+    [wearContexts],
+  );
+  useFocusEffect(
+    useCallback(() => {
+      void reloadWearContextsForCurrentUser();
+    }, []),
+  );
+
   const filteredItems = useMemo(() => {
     let items = clothingItems;
 
@@ -62,16 +87,35 @@ export function WardrobeScreen({ navigation }: Props) {
       items = items.filter((item) => item.category === selectedCategory);
     }
 
-    const query = searchQuery.trim().toLowerCase();
+    if (selectedWearContext !== ALL_CONTEXTS_FILTER) {
+      items = items.filter((item) =>
+        itemWasWornInContext(item.id, selectedWearContext, wearLogs),
+      );
+    }
+
+    const query = searchQuery.trim();
     if (query) {
-      items = items.filter((item) => item.name.toLowerCase().includes(query));
+      items = items.filter((item) =>
+        clothingItemMatchesSearch(item, query, wearLogs),
+      );
     }
 
     return items;
-  }, [clothingItems, favoritesOnly, isClothingFavorite, searchQuery, selectedCategory]);
+  }, [
+    clothingItems,
+    favoritesOnly,
+    isClothingFavorite,
+    searchQuery,
+    selectedCategory,
+    selectedWearContext,
+    wearLogs,
+  ]);
 
   const hasActiveFilters =
-    favoritesOnly || selectedCategory !== ALL_FILTER || searchQuery.trim().length > 0;
+    favoritesOnly ||
+    selectedCategory !== ALL_FILTER ||
+    selectedWearContext !== ALL_CONTEXTS_FILTER ||
+    searchQuery.trim().length > 0;
   const hasOwnItems = userItems.length > 0;
 
   const filterOptions = [ALL_FILTER, FAVORITES_FILTER, ...CLOTHING_CATEGORIES];
@@ -116,7 +160,7 @@ export function WardrobeScreen({ navigation }: Props) {
         </Text>
 
         <Input
-          placeholder="Search by name..."
+          placeholder="Search name, category, color, season, context..."
           value={searchQuery}
           onChangeText={setSearchQuery}
           autoCapitalize="none"
@@ -124,6 +168,7 @@ export function WardrobeScreen({ navigation }: Props) {
           style={styles.searchInput}
         />
 
+        <Text style={styles.filterGroupLabel}>Category</Text>
         <View style={styles.filterSection}>
           <ScrollView
             horizontal
@@ -143,18 +188,43 @@ export function WardrobeScreen({ navigation }: Props) {
           </ScrollView>
         </View>
 
+        <Text style={styles.filterGroupLabel}>Wear context</Text>
+        <View style={styles.filterSection}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            nestedScrollEnabled
+            style={styles.filterScroll}
+            contentContainerStyle={styles.filterRow}
+          >
+            {wearContextFilters.map((contextName) => (
+              <FilterChip
+                key={contextName}
+                label={contextName}
+                selected={selectedWearContext === contextName}
+                onPress={() => setSelectedWearContext(contextName)}
+              />
+            ))}
+          </ScrollView>
+        </View>
+
         <View style={styles.listSection}>
           {filteredItems.length > 0 ? (
-            filteredItems.map((item) => (
-              <ClothingCard
-                key={item.id}
-                item={item}
-                isFavorite={isClothingFavorite(item.id)}
-                onPress={() =>
-                  navigation.navigate('ClothingDetails', { itemId: item.id })
-                }
-              />
-            ))
+            filteredItems.map((item) => {
+              const wearStats = getWearStatsForItem(item.id);
+              return (
+                <ClothingCard
+                  key={item.id}
+                  item={item}
+                  isFavorite={isClothingFavorite(item.id)}
+                  wearCount={wearStats.wearCount}
+                  lastWornDate={wearStats.lastWornDate}
+                  onPress={() =>
+                    navigation.navigate('ClothingDetails', { itemId: item.id })
+                  }
+                />
+              );
+            })
           ) : (
             <EmptyState
               icon={hasActiveFilters ? '◇' : '✧'}
@@ -201,9 +271,15 @@ const styles = StyleSheet.create({
   searchInput: {
     marginBottom: spacing.lg,
   },
+  filterGroupLabel: {
+    ...typography.small,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
   filterSection: {
     minHeight: FILTER_CHIP_ROW_HEIGHT,
-    marginBottom: spacing.xl,
+    marginBottom: spacing.lg,
     flexShrink: 0,
   },
   filterScroll: {

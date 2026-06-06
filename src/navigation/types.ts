@@ -13,6 +13,8 @@ export type RootStackParamList = {
   OutfitSuggestions: undefined;
   SavedOutfits: undefined;
   OutfitDetails: { outfitId: string };
+  VirtualPreview: undefined;
+  OutfitCalendar: undefined;
   Profile: undefined;
 };
 

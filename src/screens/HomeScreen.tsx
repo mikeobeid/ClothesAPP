@@ -49,6 +49,20 @@ const QUICK_ACTIONS = [
     accentColor: '#F5E8EC',
     route: 'SavedOutfits' as const,
   },
+  {
+    title: 'Virtual Preview',
+    subtitle: 'Preview outfits on a simple mannequin',
+    icon: '◈',
+    accentColor: '#E8EEF3',
+    route: 'VirtualPreview' as const,
+  },
+  {
+    title: 'Outfit Calendar',
+    subtitle: 'Track what you wore',
+    icon: '▦',
+    accentColor: '#E8EDE4',
+    route: 'OutfitCalendar' as const,
+  },
 ];
 
 function getGreeting(): string {

@@ -27,6 +27,8 @@ import { ProfileRow } from '../types/profile';
 import { UserProfile } from '../types';
 import { isGuestMode, setGuestMode } from '../utils/userIdentity';
 import { validateUsername } from '../utils/username';
+import { reloadWearContextsForCurrentUser } from './WearContextContext';
+import { reloadWearLogsForCurrentUser } from './WearLogContext';
 import { useWardrobe } from './WardrobeContext';
 
 const PROFILE_LOAD_TIMEOUT_MS = 12000;
@@ -157,6 +159,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const triggerWardrobeRestore = useCallback(async (force = false) => {
     try {
       await refreshCloudRestoreRef.current({ force });
+      await Promise.all([
+        reloadWearLogsForCurrentUser(),
+        reloadWearContextsForCurrentUser(),
+      ]);
     } catch (error) {
       console.warn('Wardrobe restore failed:', error);
     }
@@ -200,8 +206,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.warn('Auth startup failed:', error);
       } finally {
         if (!cancelled) {
-          finishStartup();
-          void triggerWardrobeRestore();
+          try {
+            await triggerWardrobeRestore();
+          } catch (error) {
+            console.warn('Wardrobe restore failed:', error);
+          } finally {
+            finishStartup();
+          }
         }
       }
     };
@@ -218,8 +229,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         console.warn('Auth bootstrap failed:', error);
         if (!cancelled) {
-          finishStartup();
-          void triggerWardrobeRestore();
+          try {
+            await triggerWardrobeRestore();
+          } catch (restoreError) {
+            console.warn('Wardrobe restore failed:', restoreError);
+          } finally {
+            finishStartup();
+          }
         }
       }
     };

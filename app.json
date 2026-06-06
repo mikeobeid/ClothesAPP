@@ -9,14 +9,16 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Allow Wardrobe to access your photos so you can add clothing items."
+        "NSPhotoLibraryUsageDescription": "Allow Wardrobe to access your photos so you can add clothing items.",
+        "NSCameraUsageDescription": "Allow Wardrobe to access your camera so you can take clothing photos."
       }
     },
     "plugins": [
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Wardrobe to access your photos so you can add clothing items."
+          "photosPermission": "Allow Wardrobe to access your photos so you can add clothing items.",
+          "cameraPermission": "Allow Wardrobe to access your camera so you can take clothing photos."
         }
       ]
     ],

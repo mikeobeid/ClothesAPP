@@ -13,6 +13,8 @@ import { OutfitSuggestionsScreen } from '../screens/OutfitSuggestionsScreen';
 import { OutfitDetailsScreen } from '../screens/OutfitDetailsScreen';
 import { SavedOutfitsScreen } from '../screens/SavedOutfitsScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import { VirtualPreviewScreen } from '../screens/VirtualPreviewScreen';
+import { OutfitCalendarScreen } from '../screens/OutfitCalendarScreen';
 import { colors } from '../constants/theme';
 import { RootStackParamList } from './types';
 
@@ -84,6 +86,16 @@ export function AppNavigator() {
           name="OutfitDetails"
           component={OutfitDetailsScreen}
           options={{ title: 'Outfit Details' }}
+        />
+        <Stack.Screen
+          name="VirtualPreview"
+          component={VirtualPreviewScreen}
+          options={{ title: 'Virtual Preview' }}
+        />
+        <Stack.Screen
+          name="OutfitCalendar"
+          component={OutfitCalendarScreen}
+          options={{ title: 'Outfit Calendar' }}
         />
         <Stack.Screen
           name="Profile"

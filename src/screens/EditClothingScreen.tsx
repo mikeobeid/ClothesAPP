@@ -1,14 +1,17 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Button, Input, ScreenContainer, SelectionGroup } from '../components';
+import { Button, DatePickerField, Input, ScreenContainer, SelectionGroup } from '../components';
 import {
   CLOTHING_CATEGORIES,
+  CLOTHING_CONDITIONS,
   COLORS,
   OCCASIONS,
   SEASONS,
 } from '../constants/clothing';
+import { colors, spacing, typography } from '../constants/theme';
 import { useWardrobe } from '../context/WardrobeContext';
 import { RootStackScreenProps } from '../navigation/types';
+import { ClothingCondition } from '../types';
 
 type Props = RootStackScreenProps<'EditClothing'>;
 
@@ -29,6 +32,10 @@ export function EditClothingScreen({ route, navigation }: Props) {
   const [season, setSeason] = useState<string[]>(item?.season ?? []);
   const [occasion, setOccasion] = useState<string[]>(item?.occasion ?? []);
   const [notes, setNotes] = useState(item?.notes ?? '');
+  const [condition, setCondition] = useState<ClothingCondition>(
+    item?.condition ?? 'unspecified',
+  );
+  const [purchaseDate, setPurchaseDate] = useState(item?.purchaseDate ?? '');
   const [errors, setErrors] = useState<FormErrors>({});
 
   if (!item || !isUserClothingItem(itemId)) {
@@ -72,6 +79,8 @@ export function EditClothingScreen({ route, navigation }: Props) {
       return;
     }
 
+    const trimmedPurchaseDate = purchaseDate.trim();
+
     await updateClothingItem(itemId, {
       name: name.trim(),
       category,
@@ -79,6 +88,8 @@ export function EditClothingScreen({ route, navigation }: Props) {
       season,
       occasion,
       notes: notes.trim() || undefined,
+      condition: condition === 'unspecified' ? undefined : condition,
+      purchaseDate: trimmedPurchaseDate || undefined,
     });
 
     navigation.goBack();
@@ -147,6 +158,33 @@ export function EditClothingScreen({ route, navigation }: Props) {
           style={styles.notesInput}
         />
 
+        <Text style={styles.itemInfoTitle}>Item Info</Text>
+        <Text style={styles.itemInfoHint}>Optional details about this piece</Text>
+
+        <SelectionGroup
+          label="Condition"
+          options={CLOTHING_CONDITIONS.map((entry) => entry.label)}
+          selected={
+            CLOTHING_CONDITIONS.find((entry) => entry.value === condition)
+              ?.label ?? 'Unspecified'
+          }
+          onSelect={(label) => {
+            const match = CLOTHING_CONDITIONS.find(
+              (entry) => entry.label === label,
+            );
+            setCondition(match?.value ?? 'unspecified');
+          }}
+        />
+
+        <DatePickerField
+          label="Purchase Date (optional)"
+          value={purchaseDate || undefined}
+          placeholder="Select purchase date"
+          onChange={(value) => setPurchaseDate(value ?? '')}
+          allowClear
+          modalTitle="Purchase Date"
+        />
+
         <View style={styles.saveButton}>
           <Button title="Save Changes" onPress={handleSave} />
         </View>
@@ -157,29 +195,38 @@ export function EditClothingScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   content: {
-    paddingVertical: 8,
-    paddingBottom: 32,
+    paddingVertical: spacing.sm,
+    paddingBottom: spacing.xxxl,
   },
   notesInput: {
     minHeight: 96,
     textAlignVertical: 'top',
-    paddingTop: 12,
+    paddingTop: spacing.md,
+  },
+  itemInfoTitle: {
+    ...typography.subheading,
+    marginTop: spacing.xl,
+    marginBottom: spacing.xs,
+  },
+  itemInfoHint: {
+    ...typography.caption,
+    marginBottom: spacing.md,
   },
   errorText: {
     fontSize: 13,
-    color: '#EF4444',
-    marginBottom: 12,
+    color: colors.error,
+    marginBottom: spacing.md,
   },
   fieldError: {
     marginTop: -12,
   },
   saveButton: {
-    marginTop: 8,
+    marginTop: spacing.sm,
   },
   notFound: {
     fontSize: 16,
-    color: '#6B7280',
+    color: colors.textMuted,
     textAlign: 'center',
-    marginTop: 32,
+    marginTop: spacing.xxxl,
   },
 });

@@ -3,19 +3,29 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { Button, ClothingImage, Input, ScreenContainer, SelectionGroup } from '../components';
+import {
+  Button,
+  ClothingImage,
+  DatePickerField,
+  Input,
+  ScreenContainer,
+  SelectionGroup,
+} from '../components';
 import {
   CLOTHING_CATEGORIES,
+  CLOTHING_CONDITIONS,
   COLORS,
   OCCASIONS,
   SEASONS,
 } from '../constants/clothing';
-import { colors, radius, spacing, typography } from '../constants/theme';
+import { ClothingCondition } from '../types';
+import { cardBase, colors, radius, spacing, typography } from '../constants/theme';
 import { useWardrobe } from '../context/WardrobeContext';
 import { resetToWardrobe } from '../navigation/navigationHelpers';
 import { RootStackScreenProps } from '../navigation/types';
@@ -29,6 +39,15 @@ type FormErrors = {
   category?: string;
 };
 
+type ImagePickerSource = 'gallery' | 'camera';
+
+const IMAGE_PICKER_OPTIONS: ImagePicker.ImagePickerOptions = {
+  mediaTypes: ['images'],
+  allowsEditing: true,
+  aspect: [4, 3],
+  quality: 0.8,
+};
+
 export function AddClothingScreen({ navigation }: Props) {
   const { addClothingItem } = useWardrobe();
 
@@ -38,19 +57,38 @@ export function AddClothingScreen({ navigation }: Props) {
   const [color, setColor] = useState('');
   const [season, setSeason] = useState<string[]>([]);
   const [occasion, setOccasion] = useState<string[]>([]);
+  const [condition, setCondition] = useState<ClothingCondition>('unspecified');
+  const [purchaseDate, setPurchaseDate] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSaving, setIsSaving] = useState(false);
-  const [isPickingImage, setIsPickingImage] = useState(false);
+  const [pickingSource, setPickingSource] = useState<ImagePickerSource | null>(
+    null,
+  );
+  const [showPhotoOptions, setShowPhotoOptions] = useState(false);
 
-  const pickImage = async () => {
+  const isPickingImage = pickingSource !== null;
+
+  const applyPickerResult = (result: ImagePicker.ImagePickerResult) => {
+    if (result.canceled || !result.assets[0]) {
+      console.log('[ImagePicker] photo capture cancelled');
+      return;
+    }
+
+    console.log('[ImagePicker] photo selected');
+    setImageUri(result.assets[0].uri);
+    setErrors((prev) => ({ ...prev, image: undefined }));
+  };
+
+  const pickFromGallery = async () => {
     if (isSaving || isPickingImage) {
       return;
     }
 
-    setIsPickingImage(true);
+    setPickingSource('gallery');
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
+        console.log('[ImagePicker] permission denied');
         Alert.alert(
           'Permission needed',
           'Please allow photo library access to add clothing images.',
@@ -58,20 +96,63 @@ export function AddClothingScreen({ navigation }: Props) {
         return;
       }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        setImageUri(result.assets[0].uri);
-        setErrors((prev) => ({ ...prev, image: undefined }));
-      }
+      console.log('[ImagePicker] gallery opened');
+      const result = await ImagePicker.launchImageLibraryAsync(IMAGE_PICKER_OPTIONS);
+      applyPickerResult(result);
     } finally {
-      setIsPickingImage(false);
+      setPickingSource(null);
     }
+  };
+
+  const takePhoto = async () => {
+    if (isSaving || isPickingImage) {
+      return;
+    }
+
+    setPickingSource('camera');
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        console.log('[ImagePicker] permission denied');
+        Alert.alert(
+          'Permission needed',
+          'Camera permission is needed to take a clothing photo.',
+        );
+        return;
+      }
+
+      console.log('[ImagePicker] camera opened');
+      const result = await ImagePicker.launchCameraAsync(IMAGE_PICKER_OPTIONS);
+      applyPickerResult(result);
+    } finally {
+      setPickingSource(null);
+    }
+  };
+
+  const handleAddPhotoPressed = () => {
+    if (isSaving || isPickingImage) {
+      return;
+    }
+
+    console.log('[ImagePicker] add photo pressed');
+    setShowPhotoOptions(true);
+  };
+
+  const handleGalleryOption = () => {
+    console.log('[ImagePicker] gallery option selected');
+    setShowPhotoOptions(false);
+    void pickFromGallery();
+  };
+
+  const handleCameraOption = () => {
+    console.log('[ImagePicker] camera option selected');
+    setShowPhotoOptions(false);
+    void takePhoto();
+  };
+
+  const handlePickerCancel = () => {
+    console.log('[ImagePicker] picker cancelled');
+    setShowPhotoOptions(false);
   };
 
   const toggleMultiSelect = (
@@ -110,6 +191,7 @@ export function AddClothingScreen({ navigation }: Props) {
 
     setIsSaving(true);
     try {
+      const trimmedPurchaseDate = purchaseDate.trim();
       const result = await addClothingItem({
         name: name.trim(),
         category,
@@ -117,6 +199,8 @@ export function AddClothingScreen({ navigation }: Props) {
         season,
         occasion,
         imageUri,
+        condition: condition === 'unspecified' ? undefined : condition,
+        purchaseDate: trimmedPurchaseDate || undefined,
       });
 
       showCloudSyncWarning(
@@ -130,6 +214,8 @@ export function AddClothingScreen({ navigation }: Props) {
   };
 
   const colorOptions = COLORS.map((c) => c.name);
+  const pickingLabel =
+    pickingSource === 'camera' ? 'Opening camera...' : 'Opening gallery...';
 
   return (
     <ScreenContainer scrollable>
@@ -142,18 +228,20 @@ export function AddClothingScreen({ navigation }: Props) {
         <View style={styles.photoSection}>
           <Text style={styles.sectionTitle}>Photo *</Text>
           <Pressable
-            onPress={pickImage}
+            onPress={handleAddPhotoPressed}
             disabled={isSaving || isPickingImage}
             style={({ pressed }) => [
               styles.photoArea,
               errors.image && styles.photoAreaError,
-              pressed && styles.photoAreaPressed,
+              pressed && !isSaving && !isPickingImage && styles.photoAreaPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel={imageUri ? 'Change photo' : 'Add photo'}
           >
             {isPickingImage ? (
               <View style={styles.uploadingOverlay}>
                 <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={styles.uploadingText}>Opening gallery...</Text>
+                <Text style={styles.uploadingText}>{pickingLabel}</Text>
               </View>
             ) : imageUri ? (
               <View style={styles.previewWrap}>
@@ -174,11 +262,12 @@ export function AddClothingScreen({ navigation }: Props) {
                 </View>
                 <Text style={styles.photoPlaceholderTitle}>Add a photo</Text>
                 <Text style={styles.photoPlaceholderText}>
-                  Choose from your gallery
+                  Tap to choose from gallery or camera
                 </Text>
               </View>
             )}
           </Pressable>
+
           {errors.image ? (
             <Text style={styles.errorText}>{errors.image}</Text>
           ) : null}
@@ -234,6 +323,34 @@ export function AddClothingScreen({ navigation }: Props) {
             multiple
             onSelect={(value) => toggleMultiSelect(value, occasion, setOccasion)}
           />
+
+          <Text style={styles.itemInfoTitle}>Item Info</Text>
+          <Text style={styles.itemInfoHint}>Optional details about this piece</Text>
+
+          <SelectionGroup
+            label="Condition"
+            options={CLOTHING_CONDITIONS.map((entry) => entry.label)}
+            selected={
+              CLOTHING_CONDITIONS.find((entry) => entry.value === condition)
+                ?.label ?? 'Unspecified'
+            }
+            onSelect={(label) => {
+              const match = CLOTHING_CONDITIONS.find(
+                (entry) => entry.label === label,
+              );
+              setCondition(match?.value ?? 'unspecified');
+            }}
+          />
+
+          <DatePickerField
+            label="Purchase Date (optional)"
+            value={purchaseDate || undefined}
+            placeholder="Select purchase date"
+            onChange={(value) => setPurchaseDate(value ?? '')}
+            allowClear
+            disabled={isSaving || isPickingImage}
+            modalTitle="Purchase Date"
+          />
         </View>
 
         <View style={styles.saveButton}>
@@ -245,6 +362,61 @@ export function AddClothingScreen({ navigation }: Props) {
           />
         </View>
       </View>
+
+      <Modal
+        visible={showPhotoOptions}
+        animationType="slide"
+        transparent
+        onRequestClose={handlePickerCancel}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={handlePickerCancel}>
+          <Pressable style={styles.modalSheet} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Add Photo</Text>
+            <Text style={styles.modalSubtitle}>
+              Choose how you want to add a clothing photo
+            </Text>
+
+            <Pressable
+              onPress={handleGalleryOption}
+              style={({ pressed }) => [
+                styles.modalOption,
+                pressed && styles.modalOptionPressed,
+              ]}
+            >
+              <Text style={styles.modalOptionIcon}>🖼</Text>
+              <View style={styles.modalOptionText}>
+                <Text style={styles.modalOptionTitle}>Choose from Gallery</Text>
+                <Text style={styles.modalOptionHint}>Pick an existing photo</Text>
+              </View>
+            </Pressable>
+
+            <Pressable
+              onPress={handleCameraOption}
+              style={({ pressed }) => [
+                styles.modalOption,
+                pressed && styles.modalOptionPressed,
+              ]}
+            >
+              <Text style={styles.modalOptionIcon}>📷</Text>
+              <View style={styles.modalOptionText}>
+                <Text style={styles.modalOptionTitle}>Take Photo</Text>
+                <Text style={styles.modalOptionHint}>Use your camera now</Text>
+              </View>
+            </Pressable>
+
+            <Pressable
+              onPress={handlePickerCancel}
+              style={({ pressed }) => [
+                styles.modalCancel,
+                pressed && styles.modalOptionPressed,
+              ]}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -267,6 +439,15 @@ const styles = StyleSheet.create({
   },
   formSection: {
     marginBottom: spacing.sm,
+  },
+  itemInfoTitle: {
+    ...typography.subheading,
+    marginTop: spacing.xl,
+    marginBottom: spacing.xs,
+  },
+  itemInfoHint: {
+    ...typography.caption,
+    marginBottom: spacing.md,
   },
   sectionTitle: {
     fontSize: 14,
@@ -346,7 +527,8 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 13,
     color: colors.error,
-    marginBottom: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg,
   },
   fieldError: {
     marginTop: -12,
@@ -363,5 +545,73 @@ const styles = StyleSheet.create({
   },
   uploadingText: {
     ...typography.caption,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(61,52,53,0.45)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xxxl,
+  },
+  modalHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: radius.full,
+    backgroundColor: colors.border,
+    marginBottom: spacing.lg,
+  },
+  modalTitle: {
+    ...typography.subheading,
+    textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  modalSubtitle: {
+    ...typography.caption,
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+  },
+  modalOption: {
+    ...cardBase,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  modalOptionPressed: {
+    opacity: 0.92,
+  },
+  modalOptionIcon: {
+    fontSize: 22,
+  },
+  modalOptionText: {
+    flex: 1,
+  },
+  modalOptionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 2,
+  },
+  modalOptionHint: {
+    ...typography.small,
+  },
+  modalCancel: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.lg,
+    marginTop: spacing.xs,
+  },
+  modalCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
 });
